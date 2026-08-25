@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
 import { initDatabase, query, execute, isConnected } from './db';
 import { 
   INITIAL_TENANTS, 
@@ -1380,6 +1381,12 @@ app.put('/api/organization', async (req, res) => {
   res.json({ success: true, data });
 });
 
+// Serve frontend static files in production
+const _dirname = path.resolve();
+app.use(express.static(path.join(_dirname, 'dist')));
+app.get('*', (req, res) => {
+  res.sendFile(path.resolve(_dirname, 'dist', 'index.html'));
+});
 
 // Start Server & Connect to MySQL
 async function start() {
