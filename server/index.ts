@@ -1373,11 +1373,11 @@ app.put('/api/organization', async (req, res) => {
     }
   }
   // In-memory update
-  if (data.invoiceCustomization) {
-    memoryStore.invoiceCustomization = data.invoiceCustomization;
+  const { invoiceCustomization, ...restData } = data;
+  if (invoiceCustomization) {
+    memoryStore.invoiceCustomization = invoiceCustomization;
   }
-  memoryStore.organizationDetails = { ...memoryStore.organizationDetails, ...data };
-  delete memoryStore.organizationDetails.invoiceCustomization; // Keep separate in memory
+  memoryStore.organizationDetails = { ...memoryStore.organizationDetails, ...restData };
   res.json({ success: true, data });
 });
 
