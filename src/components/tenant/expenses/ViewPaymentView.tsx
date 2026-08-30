@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Printer, Trash2 } from 'lucide-react';
 import type { Bill } from '../../../types/billing';
 import { DatePicker } from '../../common/DatePicker';
-
+import { DocumentPrintPreviewModal } from '../common/DocumentPrintPreviewModal';
+import type { Invoice, InvoiceItemRow } from '../../../types/sales';
+import { api } from '../../../services/api';
 interface ViewPaymentViewProps {
   bill: Bill;
   onBack: () => void;
@@ -59,6 +61,7 @@ export const ViewPaymentView: React.FC<ViewPaymentViewProps> = ({
   const [whtRate, setWhtRate] = useState(0);
   const [referenceNo, setReferenceNo] = useState(`REF-${Math.floor(1000 + Math.random() * 9000)}`);
   const [notes, setNotes] = useState('');
+  const [printingPayment, setPrintingPayment] = useState<PaymentRecord | null>(null);
 
   // Payment Records List State
   const [payments, setPayments] = useState<PaymentRecord[]>(() => {
@@ -92,7 +95,7 @@ export const ViewPaymentView: React.FC<ViewPaymentViewProps> = ({
   const totalPaid = payments.reduce((sum, p) => sum + (Number(p.totalAmount) || 0), 0);
   const currentBalance = Math.max(0, currentBill.grossTotal - totalPaid);
 
-  const handleAddPayment = (e: React.FormEvent) => {
+  const handleAddPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     const payAmt = Number(amount) || 0;
     if (payAmt <= 0) {
@@ -149,8 +152,25 @@ export const ViewPaymentView: React.FC<ViewPaymentViewProps> = ({
         localStorage.setItem('adwiselabs_bills', JSON.stringify(newBills));
         window.dispatchEvent(new Event('storage'));
       }
+      
+      // Update Live Database automatically
+      await api.saveBill(updatedBill);
+      await api.saveSupplierPayment({
+        id: newPayment.id,
+        referenceNo: newPayment.chequeNumber || '',
+        supplierId: updatedBill.supplierId || '',
+        supplierName: updatedBill.supplierName,
+        paymentDate: newPayment.paymentDate,
+        paymentAccount: newPayment.accountHead,
+        paymentAmount: newPayment.totalAmount,
+        withholdingTax: newPayment.whtAmount,
+        balance: newBalance,
+        status: 'Applied',
+        linkedBills: [updatedBill.id],
+        notes: newPayment.notes
+      });
     } catch (err) {
-      console.error('Error updating bill balance:', err);
+      console.error('Error updating live database or bill balance:', err);
     }
 
     if (onUpdateBill) {
@@ -163,7 +183,7 @@ export const ViewPaymentView: React.FC<ViewPaymentViewProps> = ({
     alert(`Payment of Rs ${payAmt.toLocaleString()} added successfully!`);
   };
 
-  const handleDeletePayment = (payId: string) => {
+  const handleDeletePayment = async (payId: string) => {
     if (!confirm('Are you sure you want to remove this payment record?')) return;
     const updatedPayments = payments.filter(p => p.id !== payId);
     setPayments(updatedPayments);
@@ -187,6 +207,10 @@ export const ViewPaymentView: React.FC<ViewPaymentViewProps> = ({
         localStorage.setItem('adwiselabs_bills', JSON.stringify(newBills));
         window.dispatchEvent(new Event('storage'));
       }
+      
+      // Update Live Database automatically
+      await api.saveBill(updatedBill);
+      await api.deleteSupplierPayment(payId);
     } catch (err) {
       console.error(err);
     }
@@ -416,7 +440,7 @@ export const ViewPaymentView: React.FC<ViewPaymentViewProps> = ({
                     </td>
                     <td className="px-3 py-2.5 text-center flex items-center justify-center gap-1.5">
                       <button
-                        onClick={() => alert(`Printing payment receipt for ${bill.billNumber}`)}
+                        onClick={() => setPrintingPayment(p)}
                         className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition"
                         title="Print Payment Voucher"
                       >
@@ -437,6 +461,34 @@ export const ViewPaymentView: React.FC<ViewPaymentViewProps> = ({
           </table>
         </div>
       </div>
+
+      {/* PRINT MODAL */}
+      {printingPayment && (
+        <DocumentPrintPreviewModal
+          documentType="Payment Voucher"
+          document={{
+            id: printingPayment.id,
+            invoiceNumber: printingPayment.chequeNumber || printingPayment.id,
+            customerId: currentBill.supplierId || '',
+            customerName: currentBill.supplierName,
+            invoiceDate: printingPayment.paymentDate,
+            dueDate: printingPayment.paymentDate,
+            requiresDeliveryChallan: false,
+            status: currentBill.balance <= 0 ? 'Paid' : 'Partial',
+            createdAt: printingPayment.paymentDate,
+            grossTotal: currentBill.grossTotal || 0,
+            balance: currentBill.balance || 0,
+            paidAmount: (currentBill.grossTotal || 0) - (currentBill.balance || 0),
+            isTaxInclusive: currentBill.isTaxInclusive || false,
+            discount: currentBill.discount || 0,
+            discountType: 'Discount by Amount',
+            items: (currentBill.items || []).filter(item => item.itemDescription || item.netAmount > 0) as unknown as InvoiceItemRow[],
+            subtotal: currentBill.subtotal || currentBill.grossTotal || 0,
+            totalTax: currentBill.totalTax || 0,
+          } as Invoice}
+          onClose={() => setPrintingPayment(null)}
+        />
+      )}
     </div>
   );
 };

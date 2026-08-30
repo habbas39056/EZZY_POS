@@ -8,7 +8,8 @@ import {
   CreditCard, 
   ArrowDownLeft, 
   ArrowUpRight,
-  X
+  X,
+  Upload
 } from 'lucide-react';
 import type { Contact } from '../../../types/contact';
 import { INITIAL_CONTACTS } from '../../../types/contact';
@@ -16,6 +17,7 @@ import { AddContactView } from './AddContactView';
 import { ContactDetailView } from './ContactDetailView';
 import { ContactPaymentView } from './ContactPaymentView';
 import { api } from '../../../services/api';
+import { parseCSV } from '../../../utils/csvImport';
 
 interface ContactsViewProps {
   currencyCode?: string;
@@ -55,6 +57,57 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
 
   // Active Manage Dropdown
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      const text = evt.target?.result as string;
+      const parsed = parseCSV(text);
+      if (parsed.length > 0) {
+        const newContacts = parsed.map(c => ({
+          id: `cnt_${Date.now()}_${Math.random()}`,
+          name: c.Name || 'Unnamed Contact',
+          businessName: c['Business Name'] || '',
+          type: (c.Type || 'customer').toLowerCase(),
+          email: c.Email || '',
+          phone: c.Phone || '',
+          country: c.Country || 'PK',
+          status: 'active',
+          payables: Number(c.Payables) || 0,
+          receivables: Number(c.Receivables) || 0,
+          openingBalance: Number(c['Opening Balance']) || 0,
+          openingBalanceType: (c['Opening Balance Type'] || 'credit').toLowerCase() as 'credit' | 'debit',
+          createdOn: new Date().toISOString().split('T')[0]
+        }));
+        
+        try {
+          const res = await fetch('http://localhost:5000/api/contacts/bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newContacts)
+          });
+          if (res.ok) {
+            alert(`Imported ${newContacts.length} contacts successfully!`);
+            const combined = [...newContacts, ...contacts] as Contact[];
+            saveContacts(combined);
+          } else {
+            alert('Import failed on server, saved locally.');
+            const combined = [...newContacts, ...contacts] as Contact[];
+            saveContacts(combined);
+          }
+        } catch {
+          const combined = [...newContacts, ...contacts] as Contact[];
+          saveContacts(combined);
+        }
+      }
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+    reader.readAsText(file);
+  };
 
   // Modals for actions
   const [emailHistoryModal, setEmailHistoryModal] = useState<Contact | null>(null);
@@ -255,6 +308,13 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
           <h2 className="text-sm font-bold text-slate-800">Contacts</h2>
 
           <div className="flex items-center space-x-2">
+            <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImport} className="hidden" />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="px-3 py-1 bg-[#0070ba] hover:bg-sky-700 text-white text-xs font-semibold rounded transition flex items-center gap-1 shadow-xs"
+            >
+              <Upload className="w-3.5 h-3.5" /> Import
+            </button>
             <button
               onClick={() => setViewMode('add')}
               className="px-3 py-1 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded transition flex items-center gap-1"
@@ -274,6 +334,7 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
               <tr>
                 <th className="px-4 py-3 min-w-[180px]">Contact Name</th>
                 <th className="px-4 py-3 min-w-[140px]">Business Name</th>
+                <th className="px-4 py-3 min-w-[110px]">Type</th>
                 <th className="px-4 py-3 min-w-[160px]">Email</th>
                 <th className="px-4 py-3 min-w-[130px]">Phone Number</th>
                 <th className="px-4 py-3 text-right min-w-[110px]">Payables</th>
@@ -286,7 +347,7 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
             <tbody className="divide-y divide-slate-100 text-[11px]">
               {filteredContacts.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="text-center py-12 text-slate-400">
+                  <td colSpan={10} className="text-center py-12 text-slate-400">
                     <div className="flex flex-col items-center justify-center space-y-1">
                       <p className="font-semibold text-slate-600">No matching contacts found</p>
                       <p className="text-[10.5px] text-slate-400">Try adjusting your search criteria or add a new contact.</p>
@@ -316,6 +377,21 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
                     <td className="px-4 py-3 text-slate-600">
                       {contact.businessName ? (
                         <span className="font-medium text-slate-800">{contact.businessName}</span>
+                      ) : (
+                        <span className="text-slate-300 font-mono">—</span>
+                      )}
+                    </td>
+
+                    {/* Type */}
+                    <td className="px-4 py-3 text-slate-600 capitalize">
+                      {contact.type ? (
+                        <span className={`px-2 py-0.5 rounded text-[10.5px] font-bold ${
+                          contact.type === 'customer' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' :
+                          contact.type === 'supplier' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                          'bg-amber-50 text-amber-700 border border-amber-200'
+                        }`}>
+                          {contact.type}
+                        </span>
                       ) : (
                         <span className="text-slate-300 font-mono">—</span>
                       )}

@@ -20,6 +20,7 @@ import type { Category, Location, Manufacturer } from '../../../types/catalog';
 import { INITIAL_CATEGORIES, INITIAL_LOCATIONS, INITIAL_MANUFACTURERS } from '../../../types/catalog';
 
 import { api } from '../../../services/api';
+import { parseCSV } from '../../../utils/csvImport';
 
 interface ProductsListViewProps {
   currencyCode?: string;
@@ -109,6 +110,90 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [itemsPerPage, setItemsPerPage] = useState<number>(50);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      const text = evt.target?.result as string;
+      const parsed = parseCSV(text);
+      if (parsed.length > 0) {
+        const newProducts = parsed.map(p => ({
+          id: `prod_${Date.now()}_${Math.random()}`,
+          code: p.Code || `PRD-${Math.floor(1000 + Math.random() * 9000)}`,
+          name: p.Name || 'Unnamed Product',
+          categoryName: p.Category || '',
+          departmentName: p.Department || '',
+          purchasePrice: Number(p['Purchase Price']) || 0,
+          salePrice: Number(p['Sale Price']) || 0,
+          stock: Number(p.Stock) || 0,
+          openingStock: Number(p['Opening Stock']) || 0,
+          location: p.Location || '',
+          unitOfMeasure: p.UOM || 'Pcs',
+          trackStock: p['Track Stock'] !== 'false',
+          isActive: p['Active'] !== 'false',
+          createdOn: new Date().toISOString().split('T')[0]
+        }));
+        
+        try {
+          const res = await fetch('http://localhost:5000/api/catalog/products/bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newProducts)
+          });
+          if (res.ok) {
+            alert(`Imported ${newProducts.length} products successfully!`);
+            setProducts([...newProducts, ...products]);
+          } else {
+            alert('Import failed on server, saved locally.');
+            setProducts([...newProducts, ...products]);
+          }
+        } catch {
+          setProducts([...newProducts, ...products]);
+        }
+      }
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+    reader.readAsText(file);
+  };
+
+
+  const handlePrintLabels = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+    let html = `
+      <html><head><title>Print Labels</title>
+      <style>
+        body { font-family: sans-serif; padding: 20px; }
+        .label { border: 1px solid #ccc; width: 250px; padding: 10px; margin: 10px; display: inline-block; text-align: center; }
+        .name { font-weight: bold; font-size: 14px; margin-bottom: 5px; }
+        .sku { font-size: 12px; color: #555; }
+        .meta { font-size: 11px; color: #777; margin-top: 3px; }
+        .price { font-size: 16px; color: #000; font-weight: bold; margin-top: 5px; }
+      </style>
+      </head><body>
+    `;
+    products.forEach(p => {
+      const vars = p.variationOptions?.length ? p.variationOptions.join(', ') : '';
+      const warr = p.warrantyDetails ? `Wty: ${p.warrantyDetails}` : '';
+      html += `
+        <div class="label">
+          <div class="name">${p.name}</div>
+          <div class="sku">SKU: ${p.code}</div>
+          ${vars ? `<div class="meta">${vars}</div>` : ''}
+          ${warr ? `<div class="meta">${warr}</div>` : ''}
+          <div class="price">${currencySymbol} ${p.salePrice}</div>
+        </div>
+      `;
+    });
+    html += `</body></html>`;
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => { printWindow.print(); }, 500);
+  };
 
   // 1. Stock Adjustment Modal State (Screenshot 2)
   const [adjustmentModalProduct, setAdjustmentModalProduct] = useState<Product | null>(null);
@@ -255,11 +340,18 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
           <h2 className="text-base font-bold text-slate-800">Products</h2>
 
           <div className="flex items-center space-x-2">
+            <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImport} className="hidden" />
             <button
-              onClick={() => alert('CSV / Excel product import template ready for download!')}
+              onClick={() => fileInputRef.current?.click()}
               className="px-3.5 py-1.5 bg-[#0070ba] hover:bg-sky-700 text-white text-xs font-bold rounded shadow-xs transition flex items-center gap-1.5"
             >
               <Upload className="w-3.5 h-3.5" /> Import
+            </button>
+            <button
+              onClick={handlePrintLabels}
+              className="px-3.5 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-bold rounded shadow-xs transition flex items-center gap-1.5"
+            >
+              Print Labels
             </button>
             <button
               onClick={onOpenAddProduct}
@@ -301,6 +393,8 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
                 <th className="px-4 py-3 min-w-[90px]">Code</th>
                 <th className="px-4 py-3 min-w-[170px]">Item / Product Name</th>
                 <th className="px-4 py-3 min-w-[130px]">Category</th>
+                <th className="px-4 py-3 min-w-[150px]">Variations</th>
+                <th className="px-4 py-3 min-w-[120px]">Warranty</th>
                 <th className="px-4 py-3 text-right min-w-[110px]">Purchase Price</th>
                 <th className="px-4 py-3 min-w-[110px]">Location</th>
                 <th className="px-4 py-3 text-right min-w-[110px]">Sale Price</th>
@@ -313,7 +407,7 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
             <tbody className="divide-y divide-slate-100 text-[11px]">
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="text-center py-12 text-slate-400">
+                  <td colSpan={12} className="text-center py-12 text-slate-400">
                     <div className="flex flex-col items-center justify-center space-y-1">
                       <p className="font-semibold text-slate-600">No items or products found</p>
                       <p className="text-[10.5px] text-slate-400">Click "+ Product" to add a new inventory or service item.</p>
@@ -344,6 +438,16 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
                       <span className="px-2 py-0.5 rounded bg-slate-100 border border-slate-200 text-[10.5px] font-medium">
                         {prod.categoryName || 'General'}
                       </span>
+                    </td>
+
+                    {/* Variations */}
+                    <td className="px-4 py-3 text-slate-600 truncate max-w-[150px]" title={prod.variationOptions?.join(', ')}>
+                      {prod.variationOptions?.length ? prod.variationOptions.join(', ') : <span className="text-slate-300">—</span>}
+                    </td>
+
+                    {/* Warranty */}
+                    <td className="px-4 py-3 text-slate-600 truncate max-w-[120px]" title={prod.warrantyDetails}>
+                      {prod.warrantyDetails || <span className="text-slate-300">—</span>}
                     </td>
 
                     {/* Purchase Price */}

@@ -43,6 +43,8 @@ export interface Invoice {
   totalTax: number;
   grossTotal: number;
   balance: number;
+  paidAmount?: number;
+  previousPaidAmount?: number;
   status: 'Unapproved' | 'Receive Payment' | 'Completed' | 'Draft' | 'Approved' | 'Paid' | 'Overdue';
   notes?: InvoiceNote[];
   createdAt: string;

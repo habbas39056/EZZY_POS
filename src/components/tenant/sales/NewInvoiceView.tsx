@@ -315,7 +315,7 @@ export const NewInvoiceView: React.FC<NewInvoiceViewProps> = ({
       totalTax,
       grossTotal,
       balance: grossTotal,
-      status: status === 'Approved' ? 'Receive Payment' : 'Unapproved',
+      status: status === 'Approved' ? 'Approved' : 'Draft',
       notes: notesList,
       createdAt: new Date().toISOString()
     };
@@ -368,7 +368,7 @@ export const NewInvoiceView: React.FC<NewInvoiceViewProps> = ({
             >
               <option value="">{customerId ? 'Select Customer' : 'Customer is required'}</option>
               {contacts.length > 0 ? (
-                contacts.map(c => (
+                contacts.filter(c => !c.type || c.type === 'customer' || c.type === 'both').map(c => (
                   <option key={c.id} value={c.id}>{c.name} {c.businessName ? `(${c.businessName})` : ''}</option>
                 ))
               ) : (
@@ -862,3 +862,4 @@ export const NewInvoiceView: React.FC<NewInvoiceViewProps> = ({
     </div>
   );
 };
+

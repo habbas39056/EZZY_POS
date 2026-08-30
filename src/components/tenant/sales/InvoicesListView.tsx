@@ -20,6 +20,8 @@ import {
 } from 'lucide-react';
 import type { Invoice } from '../../../types/sales';
 import { INITIAL_INVOICES } from '../../../types/sales';
+import { Upload } from 'lucide-react';
+import { parseCSV } from '../../../utils/csvImport';
 import { DatePicker } from '../../common/DatePicker';
 import { isDateInRange } from '../../../utils/dateUtils';
 import { InvoiceAdjustmentView } from './InvoiceAdjustmentView';
@@ -99,11 +101,74 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({
         ...inv,
         id: safeId,
         balance: bal,
-        status: (bal === 0 ? 'Completed' : (inv.status === 'Unapproved' ? 'Unapproved' : 'Receive Payment')) as any
+        status: (bal === 0 ? 'Completed' : ((inv.status === 'Unapproved' || inv.status === 'Draft') ? 'Unapproved' : 'Receive Payment')) as any
       });
     }
 
     return deduplicated;
+  };
+
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      const text = evt.target?.result as string;
+      const parsed = parseCSV(text);
+      if (parsed.length > 0) {
+        const newInvoices = parsed.map(p => ({
+          id: `inv_${Date.now()}_${Math.random()}`,
+          invoiceNumber: p['Invoice Number'] || `INV-${Math.floor(1000 + Math.random() * 9000)}`,
+          customerName: p.Customer || p['Customer Name'] || 'Unknown Customer',
+          invoiceDate: p.Date || p['Invoice Date'] || new Date().toISOString().split('T')[0],
+          dueDate: p['Due Date'] || new Date().toISOString().split('T')[0],
+          grossTotal: Number(p['Total Amount']) || Number(p.Total) || 0,
+          status: p.Status || 'Draft',
+          items: []
+        }));
+        
+        try {
+          const res = await fetch('http://localhost:5000/api/sales/invoices/bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newInvoices)
+          });
+          if (res.ok) {
+            alert(`Imported ${newInvoices.length} invoices successfully!`);
+            loadInvoices();
+          } else {
+            alert('Import failed on server.');
+          }
+        } catch {
+          alert('Import failed.');
+        }
+      }
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+    reader.readAsText(file);
+  };
+
+  const handleBatchPayments = async () => {
+    if (selectedIds.length === 0) {
+      alert('Please select at least one invoice to mark as paid.');
+      return;
+    }
+    if (!confirm(`Are you sure you want to mark ${selectedIds.length} invoices as Paid?`)) return;
+    
+    try {
+      const res = await api.updateInvoiceBatchStatus(selectedIds, 'Completed');
+      if (res && res.success) {
+        alert(`Successfully paid ${selectedIds.length} invoices!`);
+        setSelectedIds([]);
+        loadInvoices();
+      } else {
+        alert('Batch payment failed on server.');
+      }
+    } catch {
+      alert('Batch payment failed.');
+    }
   };
 
   const loadInvoices = async () => {
@@ -361,9 +426,10 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({
           <h2 className="text-base font-bold text-slate-800">Invoices</h2>
 
           <div className="flex items-center space-x-2">
+            <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImport} className="hidden" />
             <button
               type="button"
-              onClick={() => alert(`Batch payments triggered for ${selectedIds.length} selected invoices.`)}
+              onClick={handleBatchPayments}
               className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded transition flex items-center gap-1 shadow-2xs"
             >
               <CreditCard className="w-3.5 h-3.5 text-slate-500" />
@@ -372,10 +438,10 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({
 
             <button
               type="button"
-              onClick={() => alert(`Batch print/action triggered for ${selectedIds.length} invoices.`)}
+              onClick={() => fileInputRef.current?.click()}
               className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded transition flex items-center gap-1 shadow-2xs"
             >
-              <FileText className="w-3.5 h-3.5 text-slate-500" />
+              <Upload className="w-3.5 h-3.5 text-slate-500" />
               <span>Batch Invoices</span>
             </button>
 

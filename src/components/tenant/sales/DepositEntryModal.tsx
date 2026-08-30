@@ -293,7 +293,7 @@ export const DepositEntryModal: React.FC<DepositEntryModalProps> = ({
                         className="w-full px-2 py-1 border border-slate-300 rounded text-xs bg-white"
                       >
                         <option value=""></option>
-                        {contacts.map(c => (
+                        {contacts.filter(c => !c.type || c.type === 'customer' || c.type === 'both').map(c => (
                           <option key={c.id} value={c.id}>{c.name}</option>
                         ))}
                       </select>
@@ -411,3 +411,4 @@ export const DepositEntryModal: React.FC<DepositEntryModalProps> = ({
     </div>
   );
 };
+

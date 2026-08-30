@@ -56,6 +56,9 @@ export interface Product {
   isActive: boolean;
   unitOfMeasure?: string;
   createdOn: string;
+  openingStock?: number;
+  warrantyDetails?: string;
+  variationOptions?: string[];
 }
 
 export interface StockAdjustment {

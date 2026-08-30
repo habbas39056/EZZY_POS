@@ -211,10 +211,13 @@ CREATE TABLE IF NOT EXISTS products (
   location VARCHAR(150),
   sale_price DECIMAL(15,2) DEFAULT 0.00,
   stock INT DEFAULT 0,
+  opening_stock INT DEFAULT 0,
   track_stock BOOLEAN DEFAULT TRUE,
   is_active BOOLEAN DEFAULT TRUE,
   unit_of_measure VARCHAR(50) DEFAULT 'Pcs',
   description TEXT,
+  variation_options JSON,
+  warranty_details VARCHAR(255),
   created_on VARCHAR(50),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

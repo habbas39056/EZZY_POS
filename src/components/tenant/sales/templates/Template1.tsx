@@ -100,9 +100,9 @@ export const Template1: React.FC<InvoiceTemplateProps> = ({ invoice, orgDetails,
               {lineItems.itemNo.show && <td className="py-3 text-sm text-slate-700">{idx + 1}</td>}
               {lineItems.itemDescription.show && <td className="py-3 text-sm text-slate-700">{item.itemDescription}</td>}
               {lineItems.itemQuantity.show && <td className="py-3 text-sm text-slate-700 text-center">{item.qty}</td>}
-              {lineItems.itemUnitPrice.show && <td className="py-3 text-sm text-slate-700 text-right">{item.unitPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>}
-              {lineItems.itemTaxAmount.show && <td className="py-3 text-sm text-slate-700 text-right">{item.taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>}
-              {lineItems.itemTotal.show && <td className="py-3 text-sm text-slate-700 text-right">{item.netAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>}
+              {lineItems.itemUnitPrice.show && <td className="py-3 text-sm text-slate-700 text-right">{(item.unitPrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>}
+              {lineItems.itemTaxAmount.show && <td className="py-3 text-sm text-slate-700 text-right">{(item.taxAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>}
+              {lineItems.itemTotal.show && <td className="py-3 text-sm text-slate-700 text-right">{(item.netAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>}
             </tr>
           ))}
         </tbody>
@@ -146,10 +146,16 @@ export const Template1: React.FC<InvoiceTemplateProps> = ({ invoice, orgDetails,
               </div>
             )}
             {totals.balance.show && (
-              <div className="flex justify-between font-bold">
-                <span className="text-slate-800">{totals.balance.label}</span>
-                <span>{invoice.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-              </div>
+              <>
+                <div className="flex justify-between border-b pb-2 border-slate-200 pt-2">
+                  <span className="font-bold text-slate-800">Amount Paid</span>
+                  <span>{(invoice.paidAmount !== undefined ? invoice.paidAmount : (invoice.grossTotal - invoice.balance)).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between font-bold pt-2">
+                  <span className="text-slate-800">{totals.balance.label}</span>
+                  <span>{invoice.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                </div>
+              </>
             )}
           </div>
         </div>

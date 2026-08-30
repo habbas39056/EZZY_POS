@@ -35,6 +35,7 @@ export const AddContactView: React.FC<AddContactViewProps> = ({ onSave, onCancel
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [isActive, setIsActive] = useState(true);
+  const [contactType, setContactType] = useState('customer');
 
   // Primary Address
   const [primaryAddress, setPrimaryAddress] = useState<AddressInfo>({
@@ -112,7 +113,7 @@ export const AddContactView: React.FC<AddContactViewProps> = ({ onSave, onCancel
       email,
       phone,
       status: isActive ? 'active' : 'inactive',
-      type: 'customer',
+      type: contactType,
       primaryAddress,
       billingAddress,
       shippingAddress,
@@ -199,6 +200,18 @@ export const AddContactView: React.FC<AddContactViewProps> = ({ onSave, onCancel
                 />
                 <span>Active</span>
               </label>
+            </div>
+            <div>
+              <label className="block text-slate-600 font-medium mb-1">Contact Type *</label>
+              <select
+                value={contactType}
+                onChange={(e) => setContactType(e.target.value)}
+                className="w-full px-2.5 py-1.5 border border-slate-300 rounded focus:outline-none focus:border-[#0070ba] text-xs bg-white text-slate-800"
+              >
+                <option value="customer">Customer</option>
+                <option value="supplier">Supplier</option>
+                <option value="both">Both</option>
+              </select>
             </div>
           </div>
         </div>

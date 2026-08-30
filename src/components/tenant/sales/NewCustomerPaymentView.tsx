@@ -297,7 +297,7 @@ export const NewCustomerPaymentView: React.FC<NewCustomerPaymentViewProps> = ({
               className="w-full px-3 py-1.5 border border-slate-300 rounded focus:outline-none focus:border-[#0070ba] text-xs bg-white text-slate-800"
             >
               <option value="">Select Customer</option>
-              {contacts.map(c => (
+              {contacts.filter(c => !c.type || c.type === 'customer' || c.type === 'both').map(c => (
                 <option key={c.id} value={c.id}>{c.name} {c.businessName ? `(${c.businessName})` : ''}</option>
               ))}
               {customerId && !contacts.some(c => c.id === customerId) && (
@@ -526,3 +526,4 @@ export const NewCustomerPaymentView: React.FC<NewCustomerPaymentViewProps> = ({
     </div>
   );
 };
+

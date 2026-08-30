@@ -306,6 +306,18 @@ export const api = {
     return null;
   },
 
+  async updateInvoiceBatchStatus(ids: string[], status: string) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/sales/invoices/batch-status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids, status })
+      });
+      if (res.ok) return await res.json();
+    } catch {}
+    return null;
+  },
+
   // 5. Sales Quotations
   async getQuotations() {
     try {

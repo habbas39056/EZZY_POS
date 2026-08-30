@@ -289,7 +289,7 @@ export const NewQuotationView: React.FC<NewQuotationViewProps> = ({
               >
                 <option value="">Select Customer</option>
                 {contacts.length > 0 ? (
-                  contacts.map(c => (
+                  contacts.filter(c => !c.type || c.type === 'customer' || c.type === 'both').map(c => (
                     <option key={c.id} value={c.id}>{c.name} {c.businessName ? `(${c.businessName})` : ''}</option>
                   ))
                 ) : (
@@ -687,3 +687,4 @@ export const NewQuotationView: React.FC<NewQuotationViewProps> = ({
     </div>
   );
 };
+

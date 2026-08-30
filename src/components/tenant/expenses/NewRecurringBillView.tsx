@@ -369,7 +369,7 @@ export const NewRecurringBillView: React.FC<NewRecurringBillViewProps> = ({
               }`}
             >
               <option value="">Select Supplier</option>
-              {contacts.map(c => (
+              {contacts.filter(c => !c.type || c.type === 'supplier' || c.type === 'both').map(c => (
                 <option key={c.id} value={c.id}>{c.name} {c.businessName ? `(${c.businessName})` : ''}</option>
               ))}
             </select>
@@ -705,3 +705,4 @@ export const NewRecurringBillView: React.FC<NewRecurringBillViewProps> = ({
     </div>
   );
 };
+

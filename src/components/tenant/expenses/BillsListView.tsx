@@ -20,6 +20,8 @@ import {
 } from 'lucide-react';
 import type { Bill } from '../../../types/billing';
 import { INITIAL_BILLS } from '../../../types/billing';
+import { Upload } from 'lucide-react';
+import { parseCSV } from '../../../utils/csvImport';
 import { ViewPaymentView } from './ViewPaymentView';
 import { NewRecurringBillView } from './NewRecurringBillView';
 import { NewDebitNoteView } from './NewDebitNoteView';
@@ -89,6 +91,73 @@ export const BillsListView: React.FC<BillsListViewProps> = ({
   // Kept for signature compatibility, but individual saves happen via API
   const saveBills = async (data: Bill[]) => {
     setBills(data);
+  };
+
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      const text = evt.target?.result as string;
+      const parsed = parseCSV(text);
+      if (parsed.length > 0) {
+        const newBills = parsed.map(p => ({
+          id: `bill_${Date.now()}_${Math.random()}`,
+          billNumber: p['Bill Number'] || `BILL-${Math.floor(1000 + Math.random() * 9000)}`,
+          vendorName: p.Vendor || p['Vendor Name'] || p.Supplier || 'Unknown Supplier',
+          billDate: p.Date || p['Bill Date'] || new Date().toISOString().split('T')[0],
+          dueDate: p['Due Date'] || new Date().toISOString().split('T')[0],
+          grossTotal: Number(p['Total Amount']) || Number(p.Total) || 0,
+          status: p.Status || 'Draft',
+          items: []
+        }));
+        
+        try {
+          const res = await fetch('http://localhost:5000/api/expenses/bills/bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newBills)
+          });
+          if (res.ok) {
+            alert(`Imported ${newBills.length} bills successfully!`);
+            loadBills();
+          } else {
+            alert('Import failed on server.');
+          }
+        } catch {
+          alert('Import failed.');
+        }
+      }
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+    reader.readAsText(file);
+  };
+
+  const handleBatchPayments = async () => {
+    if (selectedIds.length === 0) {
+      alert('Please select at least one bill to mark as paid.');
+      return;
+    }
+    if (!confirm(`Are you sure you want to mark ${selectedIds.length} bills as Paid?`)) return;
+    
+    try {
+      const res = await fetch('http://localhost:5000/api/expenses/bills/batch-status', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selectedIds, status: 'Completed' })
+      });
+      if (res.ok) {
+        alert(`Successfully paid ${selectedIds.length} bills!`);
+        setSelectedIds([]);
+        loadBills();
+      } else {
+        alert('Batch payment failed on server.');
+      }
+    } catch {
+      alert('Batch payment failed.');
+    }
   };
 
   const handleCopyBill = async (bill: Bill) => {
@@ -312,18 +381,19 @@ export const BillsListView: React.FC<BillsListViewProps> = ({
           <h2 className="text-base font-bold text-slate-800">Bills</h2>
 
           <div className="flex items-center space-x-2">
+            <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImport} className="hidden" />
             <button
-              onClick={() => alert('Batch Payments wizard ready for selected bills!')}
+              onClick={handleBatchPayments}
               className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded transition flex items-center gap-1.5 shadow-xs"
             >
               <CreditCard className="w-3.5 h-3.5 text-slate-500" />
               <span>Batch Payments</span>
             </button>
             <button
-              onClick={() => alert('Batch Bills import/export wizard opened!')}
+              onClick={() => fileInputRef.current?.click()}
               className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded transition flex items-center gap-1.5 shadow-xs"
             >
-              <FileText className="w-3.5 h-3.5 text-slate-500" />
+              <Upload className="w-3.5 h-3.5 text-slate-500" />
               <span>Batch Bills</span>
             </button>
             <button

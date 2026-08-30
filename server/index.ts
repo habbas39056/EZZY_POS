@@ -185,6 +185,34 @@ app.post('/api/contacts', async (req, res) => {
   res.status(201).json(c);
 });
 
+app.post('/api/contacts/bulk', async (req, res) => {
+  const contacts = req.body;
+  if (!Array.isArray(contacts)) return res.status(400).json({ error: 'Expected an array of contacts' });
+  
+  if (isConnected) {
+    try {
+      for (const c of contacts) {
+        await execute(`
+          INSERT INTO contacts (id, name, business_name, email, phone, status, type, has_opening_balance, opening_balance, payables, receivables, ntn, strn, code, notes, created_on)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE name=VALUES(name), phone=VALUES(phone), payables=VALUES(payables), receivables=VALUES(receivables), business_name=VALUES(business_name);
+        `, [
+          c.id, c.name, c.businessName || '', c.email || '', c.phone || '', c.status || 'active', c.type || 'customer',
+          c.hasOpeningBalance ? 1 : 0, c.openingBalance || 0, c.payables || 0, c.receivables || 0, c.ntn || '', c.strn || '', c.code || '', c.notes || '', c.createdOn || ''
+        ]);
+      }
+      return res.status(201).json({ success: true, count: contacts.length });
+    } catch (err: any) {
+      console.error('Error saving bulk contacts to MySQL:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+  for (const c of contacts) {
+    memoryStore.contacts.unshift(c);
+  }
+  res.status(201).json({ success: true, count: contacts.length });
+});
+
 // ==========================================================
 // 4. SALES INVOICES
 // ==========================================================
@@ -217,24 +245,72 @@ app.get('/api/sales/invoices', async (req, res) => {
 
 app.post('/api/sales/invoices', async (req, res) => {
   const inv = req.body;
+  if (!inv.customerName || !inv.invoiceDate || !inv.dueDate) {
+    return res.status(400).json({ error: 'Missing required fields (Customer Name, Invoice Date, Due Date)' });
+  }
   if (isConnected) {
     try {
       await execute(`
-        INSERT INTO sales_invoices (id, invoice_number, customer_id, customer_name, invoice_date, due_date, reference_no, gross_total, tax_amount, balance, status, items)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE customer_name=VALUES(customer_name), gross_total=VALUES(gross_total), balance=VALUES(balance), status=VALUES(status);
+        INSERT INTO sales_invoices (id, invoice_number, customer_id, customer_name, invoice_date, due_date, reference_no, gross_total, tax_amount, discount_amount, net_total, paid_amount, balance, status, items)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE customer_name=VALUES(customer_name), gross_total=VALUES(gross_total), discount_amount=VALUES(discount_amount), net_total=VALUES(net_total), paid_amount=VALUES(paid_amount), balance=VALUES(balance), status=VALUES(status);
       `, [
         inv.id, inv.invoiceNumber, inv.customerId || '', inv.customerName, inv.invoiceDate, inv.dueDate, inv.serialNumber || inv.referenceNumber || '',
-        inv.grossTotal || 0, inv.totalTax || inv.taxTotal || 0, inv.balance || 0, inv.status || 'Draft', JSON.stringify(inv.items || [])
+        inv.grossTotal || 0, inv.totalTax || inv.taxTotal || 0, inv.discountAmount || inv.discount || 0, inv.netTotal || inv.grossTotal || 0, inv.paidAmount || 0, inv.balance || 0, inv.status || 'Draft', JSON.stringify(inv.items || [])
       ]);
       return res.status(201).json(inv);
     } catch (err: any) {
       console.error('Error saving invoice to MySQL:', err.message);
+      return res.status(500).json({ error: err.message });
     }
   }
   memoryStore.salesInvoices.unshift(inv);
   res.status(201).json(inv);
 });
+
+app.post('/api/sales/invoices/bulk', async (req, res) => {
+  const invoices = req.body;
+  if (!Array.isArray(invoices)) return res.status(400).json({ error: 'Expected an array' });
+  if (isConnected) {
+    try {
+      for (const inv of invoices) {
+        await execute(`
+          INSERT INTO sales_invoices (id, invoice_number, customer_name, invoice_date, due_date, gross_total, status, items)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE customer_name=VALUES(customer_name), gross_total=VALUES(gross_total), status=VALUES(status);
+        `, [
+          inv.id, inv.invoiceNumber, inv.customerName, inv.invoiceDate, inv.dueDate,
+          inv.grossTotal || 0, inv.status || 'Draft', JSON.stringify(inv.items || [])
+        ]);
+      }
+      return res.status(201).json(invoices);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+  memoryStore.salesInvoices.unshift(...invoices);
+  res.status(201).json(invoices);
+});
+
+app.put('/api/sales/invoices/batch-status', async (req, res) => {
+  const { ids, status } = req.body;
+  if (!Array.isArray(ids) || !status) return res.status(400).json({ error: 'Invalid payload' });
+  if (isConnected) {
+    try {
+      const placeholders = ids.map(() => '?').join(',');
+      await execute(`UPDATE sales_invoices SET status = ?, balance = 0, paid_amount = gross_total WHERE id IN (${placeholders})`, [status, ...ids]);
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+  ids.forEach(id => {
+    const inv = memoryStore.salesInvoices.find(i => i.id === id);
+    if (inv) { inv.status = status; inv.balance = 0; inv.paidAmount = inv.grossTotal; }
+  });
+  res.json({ success: true });
+});
+
 
 app.delete('/api/sales/invoices/:id', async (req, res) => {
   const { id } = req.params;
@@ -421,6 +497,49 @@ app.post('/api/expenses/bills', async (req, res) => {
   }
   memoryStore.expenseBills.unshift(b);
   res.status(201).json(b);
+});
+
+app.post('/api/expenses/bills/bulk', async (req, res) => {
+  const bills = req.body;
+  if (!Array.isArray(bills)) return res.status(400).json({ error: 'Expected an array' });
+  if (isConnected) {
+    try {
+      for (const b of bills) {
+        await execute(`
+          INSERT INTO expense_bills (id, bill_number, vendor_name, bill_date, due_date, gross_total, status, items)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE vendor_name=VALUES(vendor_name), gross_total=VALUES(gross_total), status=VALUES(status);
+        `, [
+          b.id, b.billNumber, b.supplierName || b.vendorName || '', b.issueDate || b.billDate || '', b.dueDate || '',
+          b.grossTotal || 0, b.status || 'Draft', JSON.stringify(b.items || [])
+        ]);
+      }
+      return res.status(201).json(bills);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+  memoryStore.expenseBills.unshift(...bills);
+  res.status(201).json(bills);
+});
+
+app.put('/api/expenses/bills/batch-status', async (req, res) => {
+  const { ids, status } = req.body;
+  if (!Array.isArray(ids) || !status) return res.status(400).json({ error: 'Invalid payload' });
+  if (isConnected) {
+    try {
+      const placeholders = ids.map(() => '?').join(',');
+      await execute(`UPDATE expense_bills SET status = ?, balance = 0 WHERE id IN (${placeholders})`, [status, ...ids]);
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+  ids.forEach(id => {
+    const b = memoryStore.expenseBills.find(i => i.id === id);
+    if (b) { b.status = status; b.balance = 0; }
+  });
+  res.json({ success: true });
 });
 
 app.delete('/api/expenses/bills/:id', async (req, res) => {
@@ -739,13 +858,14 @@ app.post('/api/catalog/products', async (req, res) => {
   if (isConnected) {
     try {
       await execute(`
-        INSERT INTO products (id, code, name, category_name, department_name, purchase_price, sale_price, stock, track_stock, is_active, location, unit_of_measure, created_on)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE name=VALUES(name), sale_price=VALUES(sale_price), stock=VALUES(stock), purchase_price=VALUES(purchase_price);
+        INSERT INTO products (id, code, name, category_name, department_name, purchase_price, sale_price, stock, opening_stock, track_stock, is_active, location, unit_of_measure, created_on, variation_options, warranty_details)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE name=VALUES(name), sale_price=VALUES(sale_price), stock=VALUES(stock), opening_stock=VALUES(opening_stock), purchase_price=VALUES(purchase_price), variation_options=VALUES(variation_options), warranty_details=VALUES(warranty_details);
       `, [
         p.id, p.code || '', p.name, p.categoryName || '', p.departmentName || '',
-        p.purchasePrice || 0, p.salePrice || 0, p.stock || 0, p.trackStock ? 1 : 0,
-        p.isActive ? 1 : 0, p.location || '', p.unitOfMeasure || 'Pcs', p.createdOn || ''
+        p.purchasePrice || 0, p.salePrice || 0, p.stock || 0, p.openingStock || 0, p.trackStock ? 1 : 0,
+        p.isActive ? 1 : 0, p.location || '', p.unitOfMeasure || 'Pcs', p.createdOn || '',
+        JSON.stringify(p.variationOptions || []), p.warrantyDetails || ''
       ]);
       return res.status(201).json(p);
     } catch (err: any) {
@@ -754,6 +874,37 @@ app.post('/api/catalog/products', async (req, res) => {
   }
   memoryStore.products.unshift(p);
   res.status(201).json(p);
+});
+
+app.post('/api/catalog/products/bulk', async (req, res) => {
+  const products = req.body; // Expecting an array
+  if (!Array.isArray(products)) return res.status(400).json({ error: 'Expected an array of products' });
+  
+  if (isConnected) {
+    try {
+      for (const p of products) {
+        await execute(`
+          INSERT INTO products (id, code, name, category_name, department_name, purchase_price, sale_price, stock, opening_stock, track_stock, is_active, location, unit_of_measure, created_on, variation_options, warranty_details)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE name=VALUES(name), sale_price=VALUES(sale_price), stock=VALUES(stock), opening_stock=VALUES(opening_stock), purchase_price=VALUES(purchase_price), variation_options=VALUES(variation_options), warranty_details=VALUES(warranty_details);
+        `, [
+          p.id, p.code || '', p.name, p.categoryName || '', p.departmentName || '',
+          p.purchasePrice || 0, p.salePrice || 0, p.stock || 0, p.openingStock || 0, p.trackStock ? 1 : 0,
+          p.isActive ? 1 : 0, p.location || '', p.unitOfMeasure || 'Pcs', p.createdOn || '',
+          JSON.stringify(p.variationOptions || []), p.warrantyDetails || ''
+        ]);
+      }
+      return res.status(201).json({ success: true, count: products.length });
+    } catch (err: any) {
+      console.error('Error saving bulk products to MySQL:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+  // Fallback
+  for (const p of products) {
+    memoryStore.products.unshift(p);
+  }
+  res.status(201).json({ success: true, count: products.length });
 });
 
 app.delete('/api/catalog/products/:id', async (req, res) => {
@@ -1384,7 +1535,7 @@ app.put('/api/organization', async (req, res) => {
 // Serve frontend static files in production
 const _dirname = path.resolve();
 app.use(express.static(path.join(_dirname, 'dist')));
-app.get('*', (req, res) => {
+app.use((req, res) => {
   res.sendFile(path.resolve(_dirname, 'dist', 'index.html'));
 });
 

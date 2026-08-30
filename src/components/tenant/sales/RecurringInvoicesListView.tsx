@@ -86,7 +86,7 @@ export const RecurringInvoicesListView: React.FC<RecurringInvoicesListViewProps>
               className="w-full px-2.5 py-1.5 border border-slate-300 rounded focus:outline-none focus:border-[#0070ba] text-xs bg-white text-slate-800"
             >
               <option value="">Select a Customer</option>
-              {contacts.map(c => (
+              {contacts.filter(c => !c.type || c.type === 'customer' || c.type === 'both').map(c => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
@@ -259,3 +259,4 @@ export const RecurringInvoicesListView: React.FC<RecurringInvoicesListViewProps>
     </div>
   );
 };
+

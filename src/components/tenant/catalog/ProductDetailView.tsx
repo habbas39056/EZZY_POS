@@ -106,6 +106,11 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   const [canSaleOrPurchase, setCanSaleOrPurchase] = useState(true);
   const [isActive, setIsActive] = useState(product.isActive ?? true);
 
+  // New Fields
+  const [openingStock, setOpeningStock] = useState<number | ''>(product.openingStock || '');
+  const [warrantyDetails, setWarrantyDetails] = useState(product.warrantyDetails || '');
+  const [variationOptions, setVariationOptions] = useState(product.variationOptions?.join(', ') || '');
+
   // Stock Adjustment Modal
   const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
   const [adjType, setAdjType] = useState<'Increase' | 'Decrease'>('Increase');
@@ -169,6 +174,9 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       location: location || 'Warehouse Main',
       purchasePrice: purchasePrice === '' ? 0 : Number(purchasePrice),
       salePrice: salePrice === '' ? 0 : Number(salePrice),
+      openingStock: openingStock === '' ? 0 : Number(openingStock),
+      warrantyDetails,
+      variationOptions: variationOptions.split(',').map(v => v.trim()).filter(Boolean),
       trackStock,
       isActive
     };
@@ -444,9 +452,41 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                   ))}
                 </select>
               </div>
+              <div>
+                <label className="block text-slate-600 font-medium mb-1">Opening Stock</label>
+                <input
+                  type="number"
+                  value={openingStock}
+                  onChange={(e) => setOpeningStock(e.target.value === '' ? '' : Number(e.target.value))}
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded focus:outline-none focus:border-[#0070ba] text-xs text-slate-800"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-600 font-medium mb-1">Warranty Details</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 1 Year, 6 Months"
+                  value={warrantyDetails}
+                  onChange={(e) => setWarrantyDetails(e.target.value)}
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded focus:outline-none focus:border-[#0070ba] text-xs text-slate-800"
+                />
+              </div>
             </div>
 
-            {/* Row 3: Purchase Settings (i) */}
+            <div className="grid grid-cols-1 gap-3.5 mb-5">
+              <div>
+                <label className="block text-slate-600 font-medium mb-1">Variations (comma separated)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Size: M, Size: L, Color: Red"
+                  value={variationOptions}
+                  onChange={(e) => setVariationOptions(e.target.value)}
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded focus:outline-none focus:border-[#0070ba] text-xs text-slate-800"
+                />
+              </div>
+            </div>
+
+            {/* ========================================= */}
             <div>
               <div className="flex items-center gap-1 text-[11px] font-semibold text-slate-700 mb-1.5">
                 <span>Purchase Settings</span>

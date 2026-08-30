@@ -248,7 +248,7 @@ export const NewExpenseView: React.FC<NewExpenseViewProps> = ({
               className="w-full px-3 py-1.5 border border-slate-300 rounded focus:outline-none focus:border-[#0070ba] text-xs bg-white text-slate-800"
             >
               <option value="">Select Customer or Supplier (Optional)</option>
-              {contacts.map(c => (
+              {contacts.filter(c => !c.type || c.type === 'supplier' || c.type === 'both').map(c => (
                 <option key={c.id} value={c.name}>{c.name} {c.businessName ? `(${c.businessName})` : ''}</option>
               ))}
             </select>
@@ -444,3 +444,4 @@ export const NewExpenseView: React.FC<NewExpenseViewProps> = ({
     </div>
   );
 };
+
