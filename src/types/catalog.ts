@@ -24,6 +24,7 @@ export interface Category {
   name: string;
   departmentName?: string;
   departmentId?: string;
+  image?: string;
   createdOn: string;
 }
 
@@ -59,6 +60,8 @@ export interface Product {
   openingStock?: number;
   warrantyDetails?: string;
   variationOptions?: string[];
+  description?: string;
+  image?: string;
 }
 
 export interface StockAdjustment {

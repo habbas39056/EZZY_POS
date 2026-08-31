@@ -14,7 +14,8 @@ import {
   ChevronsLeft,
   ChevronLeft,
   ChevronRight,
-  ChevronsRight
+  ChevronsRight,
+  QrCode
 } from 'lucide-react';
 import type { 
   Product, 
@@ -24,6 +25,8 @@ import type {
   StockAdjustment 
 } from '../../../types/catalog';
 import { DatePicker } from '../../common/DatePicker';
+import { ProductQRLabelModal } from './ProductQRLabelModal';
+import { ImageUpload300x300 } from './ImageUpload300x300';
 
 interface ProductDetailViewProps {
   product: Product;
@@ -90,32 +93,34 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   const [location, setLocation] = useState(product.location || '');
 
   // Purchase Settings
-  const [purchasePrice, setPurchasePrice] = useState<number | ''>(product.purchasePrice || 300000);
+  const [purchasePrice, setPurchasePrice] = useState<number | ''>(product.purchasePrice ?? 0);
   const [purchaseAccount, setPurchaseAccount] = useState('02001 - Cost of Goods Sold');
   const [purchaseTaxRate, setPurchaseTaxRate] = useState('Tax Exempt - (0%)');
 
   // Sale Settings
-  const [salePrice, setSalePrice] = useState<number | ''>(product.salePrice || 320000);
+  const [salePrice, setSalePrice] = useState<number | ''>(product.salePrice ?? 0);
   const [saleAccount, setSaleAccount] = useState('01001 - Sales');
   const [saleTaxRate, setSaleTaxRate] = useState('Tax Exempt - (0%)');
 
-  // Track & Description
+  // Track & Description & Picture
   const [trackStock, setTrackStock] = useState(product.trackStock ?? true);
   const [trackAccount, setTrackAccount] = useState('Inventory');
-  const [description, setDescription] = useState('');
+  const [description, setDescription] = useState(product.description || '');
+  const [image, setImage] = useState(product.image || '');
   const [canSaleOrPurchase, setCanSaleOrPurchase] = useState(true);
   const [isActive, setIsActive] = useState(product.isActive ?? true);
 
   // New Fields
-  const [openingStock, setOpeningStock] = useState<number | ''>(product.openingStock || '');
+  const [openingStock, setOpeningStock] = useState<number | ''>(product.openingStock ?? '');
   const [warrantyDetails, setWarrantyDetails] = useState(product.warrantyDetails || '');
   const [variationOptions, setVariationOptions] = useState(product.variationOptions?.join(', ') || '');
 
-  // Stock Adjustment Modal
+  // Stock Adjustment Modal & QR Label Modal
   const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
+  const [showQrModal, setShowQrModal] = useState(false);
   const [adjType, setAdjType] = useState<'Increase' | 'Decrease'>('Increase');
   const [adjQty, setAdjQty] = useState<number | ''>('');
-  const [adjUnitPrice, setAdjUnitPrice] = useState<number | ''>(product.purchasePrice || 300000);
+  const [adjUnitPrice, setAdjUnitPrice] = useState<number | ''>(product.purchasePrice ?? 0);
   const [adjAccount, setAdjAccount] = useState<string>('20001 - Retained Earnings');
   
   const getTodayFormatted = () => {
@@ -178,7 +183,9 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       warrantyDetails,
       variationOptions: variationOptions.split(',').map(v => v.trim()).filter(Boolean),
       trackStock,
-      isActive
+      isActive,
+      description: description.trim(),
+      image
     };
 
     onUpdate(updated);
@@ -287,16 +294,42 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-6 space-y-5">
         {/* Title Bar */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-            {product.name}
-          </h1>
+          <div className="flex items-center gap-3">
+            {product.image ? (
+              <img
+                src={product.image}
+                alt={product.name}
+                className="w-12 h-12 rounded-lg object-contain bg-slate-50 border border-slate-200 shadow-2xs shrink-0"
+              />
+            ) : (
+              <div className="w-12 h-12 rounded-lg bg-slate-100 border border-slate-200 text-slate-400 flex items-center justify-center shrink-0">
+                <Package className="w-6 h-6" />
+              </div>
+            )}
+            <div>
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+                {product.name}
+              </h1>
+              <span className="text-xs text-slate-500 font-mono">
+                {product.code} • {product.categoryName || 'General'}
+              </span>
+            </div>
+          </div>
 
-          <button
-            onClick={() => setShowAdjustmentModal(true)}
-            className="px-4 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 text-xs font-bold rounded shadow-2xs transition flex items-center gap-1.5 self-start sm:self-auto"
-          >
-            <Plus className="w-3.5 h-3.5 text-[#0070ba]" /> Adjustment
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowQrModal(true)}
+              className="px-3.5 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 text-xs font-bold rounded shadow-2xs transition flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
+            >
+              <QrCode className="w-3.5 h-3.5 text-[#0070ba]" /> Print QR Label
+            </button>
+            <button
+              onClick={() => setShowAdjustmentModal(true)}
+              className="px-4 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 text-xs font-bold rounded shadow-2xs transition flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5 text-[#0070ba]" /> Adjustment
+            </button>
+          </div>
         </div>
 
         {/* 3 Metric Summary Cards in a row */}
@@ -636,12 +669,22 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                   </div>
                 </div>
 
+                <div className="sm:col-span-2">
+                  <ImageUpload300x300
+                    value={image}
+                    onChange={setImage}
+                    label="Product Picture"
+                    description="Restricted to max 300 × 300 px (Auto-optimized)"
+                  />
+                </div>
+
                 <div>
                   <label className="block text-[10.5px] text-slate-500 mb-1">Description</label>
                   <input
                     type="text"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Product description..."
                     className="w-full px-3 py-1.5 border border-slate-300 rounded focus:outline-none focus:border-[#0070ba] text-xs bg-white"
                   />
                 </div>
@@ -988,6 +1031,16 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {/* QR Label Print & Preview Modal */}
+      {showQrModal && (
+        <ProductQRLabelModal
+          products={[product]}
+          initialSelectedProductId={product.id}
+          currencySymbol={currencySymbol}
+          onClose={() => setShowQrModal(false)}
+        />
       )}
     </div>
   );

@@ -150,13 +150,17 @@ async function migrateAndSeed() {
     );
     CREATE TABLE IF NOT EXISTS catalog_categories (
       id VARCHAR(50) PRIMARY KEY,
+      tenant_id VARCHAR(50),
       name VARCHAR(150) NOT NULL,
       department_name VARCHAR(150),
+      department_id VARCHAR(50),
+      image LONGTEXT,
       created_on VARCHAR(50),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE IF NOT EXISTS catalog_uom (
       id VARCHAR(50) PRIMARY KEY,
+      tenant_id VARCHAR(50),
       name VARCHAR(100) NOT NULL,
       symbol VARCHAR(20) NOT NULL,
       created_on VARCHAR(50),
@@ -164,27 +168,52 @@ async function migrateAndSeed() {
     );
     CREATE TABLE IF NOT EXISTS catalog_locations (
       id VARCHAR(50) PRIMARY KEY,
+      tenant_id VARCHAR(50),
       name VARCHAR(150) NOT NULL,
       parent_location VARCHAR(150),
+      code VARCHAR(50),
       created_on VARCHAR(50),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE IF NOT EXISTS products (
       id VARCHAR(50) PRIMARY KEY,
+      tenant_id VARCHAR(50),
       code VARCHAR(100),
       name VARCHAR(200) NOT NULL,
       category_name VARCHAR(150),
+      department_name VARCHAR(150),
       purchase_price DECIMAL(15,2) DEFAULT 0.00,
       location VARCHAR(150),
       sale_price DECIMAL(15,2) DEFAULT 0.00,
       stock INT DEFAULT 0,
+      opening_stock INT DEFAULT 0,
       track_stock BOOLEAN DEFAULT TRUE,
       is_active BOOLEAN DEFAULT TRUE,
       unit_of_measure VARCHAR(50) DEFAULT 'Pcs',
+      description TEXT,
+      variation_options JSON,
+      warranty_details VARCHAR(255),
+      image LONGTEXT,
       created_on VARCHAR(50),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  // Ensure columns on existing live database tables
+  const columnMigrations = [
+    `ALTER TABLE products ADD COLUMN image LONGTEXT;`,
+    `ALTER TABLE products ADD COLUMN description TEXT;`,
+    `ALTER TABLE products ADD COLUMN warranty_details VARCHAR(255);`,
+    `ALTER TABLE products ADD COLUMN variation_options JSON;`,
+    `ALTER TABLE products ADD COLUMN opening_stock INT DEFAULT 0;`,
+    `ALTER TABLE catalog_categories ADD COLUMN image LONGTEXT;`,
+    `ALTER TABLE catalog_categories ADD COLUMN department_id VARCHAR(50);`
+  ];
+  for (const mig of columnMigrations) {
+    try {
+      await connection.query(mig);
+    } catch {}
+  }
 
   // 5. Sales & Invoices
   await connection.query(`

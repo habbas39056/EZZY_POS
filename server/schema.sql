@@ -174,6 +174,7 @@ CREATE TABLE IF NOT EXISTS catalog_categories (
   name VARCHAR(150) NOT NULL,
   department_name VARCHAR(150),
   department_id VARCHAR(50),
+  image LONGTEXT,
   created_on VARCHAR(50),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -218,6 +219,7 @@ CREATE TABLE IF NOT EXISTS products (
   description TEXT,
   variation_options JSON,
   warranty_details VARCHAR(255),
+  image LONGTEXT,
   created_on VARCHAR(50),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

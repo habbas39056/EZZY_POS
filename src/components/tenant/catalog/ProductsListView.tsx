@@ -10,19 +10,30 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronsRight,
-  X
+  X,
+  QrCode,
+  FileSpreadsheet,
+  Package
 } from 'lucide-react';
 import type { Product, StockAdjustment } from '../../../types/catalog';
 import { INITIAL_PRODUCTS } from '../../../types/catalog';
 import { DatePicker } from '../../common/DatePicker';
 import { ProductDetailView } from './ProductDetailView';
+import { ProductQRLabelModal } from './ProductQRLabelModal';
 import type { Category, Location, Manufacturer } from '../../../types/catalog';
 import { INITIAL_CATEGORIES, INITIAL_LOCATIONS, INITIAL_MANUFACTURERS } from '../../../types/catalog';
 
 import { api } from '../../../services/api';
-import { parseCSV } from '../../../utils/csvImport';
+import { parseCSV, downloadProductExcelTemplate } from '../../../utils/csvImport';
 
 interface ProductsListViewProps {
+  products?: Product[];
+  categories?: Category[];
+  locations?: Location[];
+  manufacturers?: Manufacturer[];
+  onUpdateProduct?: (product: Product) => void;
+  onDeleteProduct?: (id: string) => void;
+  onBulkAddProducts?: (products: Product[]) => void;
   currencyCode?: string;
   currencySymbol?: string;
   onOpenAddProduct: () => void;
@@ -39,32 +50,45 @@ const DEFAULT_CHART_OF_ACCOUNTS = [
 ];
 
 export const ProductsListView: React.FC<ProductsListViewProps> = ({
+  products: parentProducts,
+  categories: parentCategories,
+  locations: parentLocations,
+  manufacturers: parentManufacturers,
+  onUpdateProduct,
+  onDeleteProduct,
+  onBulkAddProducts,
   currencyCode = 'PKR',
   currencySymbol = 'Rs',
   onOpenAddProduct,
   onTabChange
 }) => {
-  const [products, setProducts] = useState<Product[]>(() => {
+  const [localProducts, setLocalProducts] = useState<Product[]>(() => {
     const saved = localStorage.getItem('adwiselabs_catalog_products');
     return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
   });
 
-  const [categories, setCategories] = useState<Category[]>(() => {
+  const [localCategories, setLocalCategories] = useState<Category[]>(() => {
     const saved = localStorage.getItem('adwiselabs_catalog_categories');
     return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
   });
 
-  const [locations, setLocations] = useState<Location[]>(() => {
+  const [localLocations, setLocalLocations] = useState<Location[]>(() => {
     const saved = localStorage.getItem('adwiselabs_catalog_locations');
     return saved ? JSON.parse(saved) : INITIAL_LOCATIONS;
   });
 
-  const [manufacturers, setManufacturers] = useState<Manufacturer[]>(() => {
+  const [localManufacturers, setLocalManufacturers] = useState<Manufacturer[]>(() => {
     const saved = localStorage.getItem('adwiselabs_catalog_manufacturers');
     return saved ? JSON.parse(saved) : INITIAL_MANUFACTURERS;
   });
 
+  const products = parentProducts !== undefined ? parentProducts : localProducts;
+  const categories = parentCategories !== undefined ? parentCategories : localCategories;
+  const locations = parentLocations !== undefined ? parentLocations : localLocations;
+  const manufacturers = parentManufacturers !== undefined ? parentManufacturers : localManufacturers;
+
   React.useEffect(() => {
+    if (parentProducts !== undefined) return;
     const loadData = async () => {
       try {
         const [c, l, m, p] = await Promise.all([
@@ -73,14 +97,14 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
           api.getManufacturers(),
           api.getProducts()
         ]);
-        if (c && Array.isArray(c) && c.length > 0) setCategories(c);
-        if (l && Array.isArray(l) && l.length > 0) setLocations(l);
-        if (m && Array.isArray(m) && m.length > 0) setManufacturers(m);
-        if (p && Array.isArray(p) && p.length > 0) setProducts(p);
+        if (c && Array.isArray(c) && c.length > 0) setLocalCategories(c);
+        if (l && Array.isArray(l) && l.length > 0) setLocalLocations(l);
+        if (m && Array.isArray(m) && m.length > 0) setLocalManufacturers(m);
+        if (p && Array.isArray(p) && p.length > 0) setLocalProducts(p);
       } catch (e) {}
     };
     loadData();
-  }, []);
+  }, [parentProducts]);
 
   // Selected Product for Detail / Edit view
   const [selectedDetailProduct, setSelectedDetailProduct] = useState<Product | null>(null);
@@ -121,19 +145,25 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
       const parsed = parseCSV(text);
       if (parsed.length > 0) {
         const newProducts = parsed.map(p => ({
-          id: `prod_${Date.now()}_${Math.random()}`,
-          code: p.Code || `PRD-${Math.floor(1000 + Math.random() * 9000)}`,
-          name: p.Name || 'Unnamed Product',
-          categoryName: p.Category || '',
-          departmentName: p.Department || '',
-          purchasePrice: Number(p['Purchase Price']) || 0,
-          salePrice: Number(p['Sale Price']) || 0,
-          stock: Number(p.Stock) || 0,
-          openingStock: Number(p['Opening Stock']) || 0,
-          location: p.Location || '',
-          unitOfMeasure: p.UOM || 'Pcs',
-          trackStock: p['Track Stock'] !== 'false',
-          isActive: p['Active'] !== 'false',
+          id: `prod_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+          code: p.Code || p.code || p.SKU || p.sku || `PRD-${Math.floor(100000 + Math.random() * 900000)}`,
+          name: p.Name || p.name || p['Product Name'] || p['Item Name'] || 'Unnamed Product',
+          categoryName: p.Category || p.category || p['Category Name'] || 'General',
+          departmentName: p.Department || p.department || p['Department Name'] || '',
+          purchasePrice: Number(p['Purchase Price'] || p['Cost Price'] || p.purchasePrice) || 0,
+          salePrice: Number(p['Sale Price'] || p.Price || p.salePrice || p['Unit Price']) || 0,
+          stock: Number(p.Stock || p.stock || p.Quantity || p.Qty) || 0,
+          openingStock: Number(p['Opening Stock'] || p.openingStock || p.Stock || 0) || 0,
+          location: p.Location || p.location || 'Main Warehouse',
+          unitOfMeasure: p.UOM || p.uom || p.Unit || p.unitOfMeasure || 'Pcs',
+          trackStock: p['Track Stock'] !== 'false' && p.trackStock !== 'false',
+          isActive: p['Active'] !== 'false' && p.isActive !== 'false',
+          warrantyDetails: p['Warranty Details'] || p.Warranty || p.warranty || '',
+          variationOptions: (p['Variation Options'] || p.Variations || p.variants || '')
+            ? (p['Variation Options'] || p.Variations || p.variants || '').split(',').map((v: string) => v.trim()).filter(Boolean)
+            : [],
+          description: p.Description || p.description || '',
+          image: p.Image || p.image || p.Picture || p.picture || '',
           createdOn: new Date().toISOString().split('T')[0]
         }));
         
@@ -145,13 +175,16 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
           });
           if (res.ok) {
             alert(`Imported ${newProducts.length} products successfully!`);
-            setProducts([...newProducts, ...products]);
           } else {
-            alert('Import failed on server, saved locally.');
-            setProducts([...newProducts, ...products]);
+            alert('Import saved locally.');
           }
         } catch {
-          setProducts([...newProducts, ...products]);
+          // offline fallback
+        }
+        if (onBulkAddProducts) {
+          onBulkAddProducts(newProducts);
+        } else {
+          saveProducts([...newProducts, ...products]);
         }
       }
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -160,39 +193,11 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
   };
 
 
+  const [showBatchQrModal, setShowBatchQrModal] = useState(false);
+  const [qrModalProduct, setQrModalProduct] = useState<Product | null>(null);
+
   const handlePrintLabels = () => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-    let html = `
-      <html><head><title>Print Labels</title>
-      <style>
-        body { font-family: sans-serif; padding: 20px; }
-        .label { border: 1px solid #ccc; width: 250px; padding: 10px; margin: 10px; display: inline-block; text-align: center; }
-        .name { font-weight: bold; font-size: 14px; margin-bottom: 5px; }
-        .sku { font-size: 12px; color: #555; }
-        .meta { font-size: 11px; color: #777; margin-top: 3px; }
-        .price { font-size: 16px; color: #000; font-weight: bold; margin-top: 5px; }
-      </style>
-      </head><body>
-    `;
-    products.forEach(p => {
-      const vars = p.variationOptions?.length ? p.variationOptions.join(', ') : '';
-      const warr = p.warrantyDetails ? `Wty: ${p.warrantyDetails}` : '';
-      html += `
-        <div class="label">
-          <div class="name">${p.name}</div>
-          <div class="sku">SKU: ${p.code}</div>
-          ${vars ? `<div class="meta">${vars}</div>` : ''}
-          ${warr ? `<div class="meta">${warr}</div>` : ''}
-          <div class="price">${currencySymbol} ${p.salePrice}</div>
-        </div>
-      `;
-    });
-    html += `</body></html>`;
-    printWindow.document.write(html);
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => { printWindow.print(); }, 500);
+    setShowBatchQrModal(true);
   };
 
   // 1. Stock Adjustment Modal State (Screenshot 2)
@@ -220,7 +225,7 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
   const [historyEndDate, setHistoryEndDate] = useState<string>('');
 
   const saveProducts = (data: Product[]) => {
-    setProducts(data);
+    setLocalProducts(data);
     localStorage.setItem('adwiselabs_catalog_products', JSON.stringify(data));
   };
 
@@ -231,7 +236,12 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
 
   const handleDeleteProduct = (id: string) => {
     if (confirm('Are you sure you want to delete this product?')) {
-      saveProducts(products.filter(p => p.id !== id));
+      if (onDeleteProduct) {
+        onDeleteProduct(id);
+      } else {
+        saveProducts(products.filter(p => p.id !== id));
+        api.deleteProduct(id).catch(() => {});
+      }
       setActiveMenuId(null);
     }
   };
@@ -240,7 +250,7 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
     setAdjustmentModalProduct(prod);
     setAdjType('Increase');
     setAdjQty('');
-    setAdjUnitPrice(prod.purchasePrice || 300000);
+    setAdjUnitPrice(prod.purchasePrice ?? 0);
     setAdjAccount('20001 - Retained Earnings');
     setAdjDate(getTodayFormatted());
     setAdjNote('');
@@ -265,13 +275,19 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
       ? adjustmentModalProduct.stock + qtyNumber
       : Math.max(0, adjustmentModalProduct.stock - qtyNumber);
 
-    const updatedProductList = products.map(p => {
-      if (p.id === adjustmentModalProduct.id) {
-        return { ...p, stock: updatedStock, purchasePrice: priceNumber > 0 ? priceNumber : p.purchasePrice };
-      }
-      return p;
-    });
-    saveProducts(updatedProductList);
+    const updatedProd: Product = {
+      ...adjustmentModalProduct,
+      stock: updatedStock,
+      purchasePrice: priceNumber > 0 ? priceNumber : adjustmentModalProduct.purchasePrice
+    };
+
+    if (onUpdateProduct) {
+      onUpdateProduct(updatedProd);
+    } else {
+      const updatedProductList = products.map(p => p.id === updatedProd.id ? updatedProd : p);
+      saveProducts(updatedProductList);
+      api.saveProduct(updatedProd).catch(() => {});
+    }
 
     // Record Stock History Item
     const newAdjRecord: StockAdjustment = {
@@ -321,8 +337,13 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
         manufacturers={manufacturers}
         onBack={() => setSelectedDetailProduct(null)}
         onUpdate={(updatedProduct) => {
-          const updatedList = products.map(p => p.id === updatedProduct.id ? updatedProduct : p);
-          saveProducts(updatedList);
+          if (onUpdateProduct) {
+            onUpdateProduct(updatedProduct);
+          } else {
+            const updatedList = products.map(p => p.id === updatedProduct.id ? updatedProduct : p);
+            saveProducts(updatedList);
+            api.saveProduct(updatedProduct).catch(() => {});
+          }
           setSelectedDetailProduct(updatedProduct);
         }}
         currencyCode={currencyCode}
@@ -342,14 +363,21 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
           <div className="flex items-center space-x-2">
             <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImport} className="hidden" />
             <button
+              onClick={downloadProductExcelTemplate}
+              title="Download Excel / CSV Template for Product Import"
+              className="px-3.5 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-bold rounded shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" /> Excel Template
+            </button>
+            <button
               onClick={() => fileInputRef.current?.click()}
-              className="px-3.5 py-1.5 bg-[#0070ba] hover:bg-sky-700 text-white text-xs font-bold rounded shadow-xs transition flex items-center gap-1.5"
+              className="px-3.5 py-1.5 bg-[#0070ba] hover:bg-sky-700 text-white text-xs font-bold rounded shadow-xs transition flex items-center gap-1.5 cursor-pointer"
             >
               <Upload className="w-3.5 h-3.5" /> Import
             </button>
             <button
               onClick={handlePrintLabels}
-              className="px-3.5 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-bold rounded shadow-xs transition flex items-center gap-1.5"
+              className="px-3.5 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-bold rounded shadow-xs transition flex items-center gap-1.5 cursor-pointer"
             >
               Print Labels
             </button>
@@ -425,12 +453,25 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
                       {prod.code || <span className="text-slate-300">—</span>}
                     </td>
 
-                    {/* Name */}
+                    {/* Name with Tiny Thumbnail */}
                     <td 
                       onClick={() => setSelectedDetailProduct(prod)}
                       className="px-4 py-3 font-semibold text-slate-900 cursor-pointer hover:text-[#0070ba]"
                     >
-                      {prod.name}
+                      <div className="flex items-center gap-2.5">
+                        {prod.image ? (
+                          <img
+                            src={prod.image}
+                            alt={prod.name}
+                            className="w-7 h-7 rounded-md object-contain bg-slate-50 border border-slate-200 shrink-0 shadow-2xs"
+                          />
+                        ) : (
+                          <div className="w-7 h-7 rounded-md bg-slate-100 border border-slate-200 text-slate-400 flex items-center justify-center shrink-0">
+                            <Package className="w-3.5 h-3.5" />
+                          </div>
+                        )}
+                        <span className="truncate">{prod.name}</span>
+                      </div>
                     </td>
 
                     {/* Category Name */}
@@ -526,6 +567,18 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
                           >
                             <Warehouse className="w-4 h-4 text-slate-900" />
                             <span>Stock History</span>
+                          </button>
+
+                          {/* Print QR Label */}
+                          <button
+                            onClick={() => {
+                              setQrModalProduct(prod);
+                              setActiveMenuId(null);
+                            }}
+                            className="w-full px-4 py-2 flex items-center gap-2.5 hover:bg-slate-50 text-slate-800 font-medium transition cursor-pointer"
+                          >
+                            <QrCode className="w-4 h-4 text-[#0070ba]" />
+                            <span>Print QR Label</span>
                           </button>
 
                           {/* Delete Product */}
@@ -942,6 +995,25 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* QR Label Modal (Batch / All filtered products) */}
+      {showBatchQrModal && (
+        <ProductQRLabelModal
+          products={filteredProducts.length > 0 ? filteredProducts : products}
+          currencySymbol={currencySymbol}
+          onClose={() => setShowBatchQrModal(false)}
+        />
+      )}
+
+      {/* QR Label Modal (Single Product) */}
+      {qrModalProduct && (
+        <ProductQRLabelModal
+          products={products}
+          initialSelectedProductId={qrModalProduct.id}
+          currencySymbol={currencySymbol}
+          onClose={() => setQrModalProduct(null)}
+        />
       )}
     </div>
   );

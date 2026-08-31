@@ -833,18 +833,23 @@ app.get('/api/catalog/products', async (req, res) => {
       const rows = await query('SELECT * FROM products ORDER BY created_at DESC');
       return res.json(rows.map((r: any) => ({
         id: r.id,
-        code: r.code,
+        code: r.code || '',
         name: r.name,
-        categoryName: r.category_name,
-        departmentName: r.department_name,
+        categoryName: r.category_name || '',
+        departmentName: r.department_name || '',
         purchasePrice: Number(r.purchase_price) || 0,
         salePrice: Number(r.sale_price) || 0,
         stock: Number(r.stock) || 0,
+        openingStock: Number(r.opening_stock) || 0,
         trackStock: Boolean(r.track_stock),
         isActive: Boolean(r.is_active),
-        location: r.location,
-        unitOfMeasure: r.unit_of_measure,
-        createdOn: r.created_on
+        location: r.location || '',
+        unitOfMeasure: r.unit_of_measure || 'Pcs',
+        description: r.description || '',
+        warrantyDetails: r.warranty_details || '',
+        variationOptions: typeof r.variation_options === 'string' ? JSON.parse(r.variation_options || '[]') : (r.variation_options || []),
+        image: r.image || '',
+        createdOn: r.created_on || ''
       })));
     } catch (err: any) {
       console.error('Error fetching products from MySQL:', err.message);
@@ -855,24 +860,40 @@ app.get('/api/catalog/products', async (req, res) => {
 
 app.post('/api/catalog/products', async (req, res) => {
   const p = req.body;
+  if (!p.id) {
+    p.id = `prod_${Date.now()}`;
+  }
+  if (!p.createdOn) {
+    const now = new Date();
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = now.toLocaleString('en-US', { month: 'short' });
+    const year = now.getFullYear();
+    p.createdOn = `${day}-${month}-${year}`;
+  }
+
   if (isConnected) {
     try {
       await execute(`
-        INSERT INTO products (id, code, name, category_name, department_name, purchase_price, sale_price, stock, opening_stock, track_stock, is_active, location, unit_of_measure, created_on, variation_options, warranty_details)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE name=VALUES(name), sale_price=VALUES(sale_price), stock=VALUES(stock), opening_stock=VALUES(opening_stock), purchase_price=VALUES(purchase_price), variation_options=VALUES(variation_options), warranty_details=VALUES(warranty_details);
+        INSERT INTO products (id, code, name, category_name, department_name, purchase_price, sale_price, stock, opening_stock, track_stock, is_active, location, unit_of_measure, description, created_on, variation_options, warranty_details, image)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE name=VALUES(name), category_name=VALUES(category_name), department_name=VALUES(department_name), sale_price=VALUES(sale_price), stock=VALUES(stock), opening_stock=VALUES(opening_stock), purchase_price=VALUES(purchase_price), location=VALUES(location), unit_of_measure=VALUES(unit_of_measure), description=VALUES(description), variation_options=VALUES(variation_options), warranty_details=VALUES(warranty_details), image=VALUES(image), track_stock=VALUES(track_stock), is_active=VALUES(is_active);
       `, [
         p.id, p.code || '', p.name, p.categoryName || '', p.departmentName || '',
         p.purchasePrice || 0, p.salePrice || 0, p.stock || 0, p.openingStock || 0, p.trackStock ? 1 : 0,
-        p.isActive ? 1 : 0, p.location || '', p.unitOfMeasure || 'Pcs', p.createdOn || '',
-        JSON.stringify(p.variationOptions || []), p.warrantyDetails || ''
+        p.isActive ? 1 : 0, p.location || '', p.unitOfMeasure || 'Pcs', p.description || '', p.createdOn || '',
+        JSON.stringify(p.variationOptions || []), p.warrantyDetails || '', p.image || ''
       ]);
       return res.status(201).json(p);
     } catch (err: any) {
       console.error('Error saving product to MySQL:', err.message);
     }
   }
-  memoryStore.products.unshift(p);
+  const existingIdx = memoryStore.products.findIndex((item: any) => item.id === p.id);
+  if (existingIdx >= 0) {
+    memoryStore.products[existingIdx] = p;
+  } else {
+    memoryStore.products.unshift(p);
+  }
   res.status(201).json(p);
 });
 
@@ -883,15 +904,16 @@ app.post('/api/catalog/products/bulk', async (req, res) => {
   if (isConnected) {
     try {
       for (const p of products) {
+        if (!p.id) p.id = `prod_${Date.now()}_${Math.random()}`;
         await execute(`
-          INSERT INTO products (id, code, name, category_name, department_name, purchase_price, sale_price, stock, opening_stock, track_stock, is_active, location, unit_of_measure, created_on, variation_options, warranty_details)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON DUPLICATE KEY UPDATE name=VALUES(name), sale_price=VALUES(sale_price), stock=VALUES(stock), opening_stock=VALUES(opening_stock), purchase_price=VALUES(purchase_price), variation_options=VALUES(variation_options), warranty_details=VALUES(warranty_details);
+          INSERT INTO products (id, code, name, category_name, department_name, purchase_price, sale_price, stock, opening_stock, track_stock, is_active, location, unit_of_measure, description, created_on, variation_options, warranty_details, image)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE name=VALUES(name), category_name=VALUES(category_name), department_name=VALUES(department_name), sale_price=VALUES(sale_price), stock=VALUES(stock), opening_stock=VALUES(opening_stock), purchase_price=VALUES(purchase_price), location=VALUES(location), unit_of_measure=VALUES(unit_of_measure), description=VALUES(description), variation_options=VALUES(variation_options), warranty_details=VALUES(warranty_details), image=VALUES(image), track_stock=VALUES(track_stock), is_active=VALUES(is_active);
         `, [
           p.id, p.code || '', p.name, p.categoryName || '', p.departmentName || '',
           p.purchasePrice || 0, p.salePrice || 0, p.stock || 0, p.openingStock || 0, p.trackStock ? 1 : 0,
-          p.isActive ? 1 : 0, p.location || '', p.unitOfMeasure || 'Pcs', p.createdOn || '',
-          JSON.stringify(p.variationOptions || []), p.warrantyDetails || ''
+          p.isActive ? 1 : 0, p.location || '', p.unitOfMeasure || 'Pcs', p.description || '', p.createdOn || '',
+          JSON.stringify(p.variationOptions || []), p.warrantyDetails || '', p.image || ''
         ]);
       }
       return res.status(201).json({ success: true, count: products.length });
@@ -902,7 +924,12 @@ app.post('/api/catalog/products/bulk', async (req, res) => {
   }
   // Fallback
   for (const p of products) {
-    memoryStore.products.unshift(p);
+    const existingIdx = memoryStore.products.findIndex((item: any) => item.id === p.id);
+    if (existingIdx >= 0) {
+      memoryStore.products[existingIdx] = p;
+    } else {
+      memoryStore.products.unshift(p);
+    }
   }
   res.status(201).json({ success: true, count: products.length });
 });
@@ -933,6 +960,7 @@ app.get('/api/catalog/categories', async (req, res) => {
         name: r.name,
         departmentName: r.department_name,
         departmentId: r.department_id,
+        image: r.image || '',
         createdOn: r.created_on
       })));
     } catch (err: any) {
@@ -947,14 +975,15 @@ app.post('/api/catalog/categories', async (req, res) => {
   if (isConnected) {
     try {
       await execute(`
-        INSERT INTO catalog_categories (id, name, department_name, department_id, created_on)
-        VALUES (?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE name=VALUES(name), department_name=VALUES(department_name), department_id=VALUES(department_id);
+        INSERT INTO catalog_categories (id, name, department_name, department_id, image, created_on)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE name=VALUES(name), department_name=VALUES(department_name), department_id=VALUES(department_id), image=VALUES(image);
       `, [
         cat.id,
         cat.name,
         cat.departmentName || '',
         cat.departmentId || '',
+        cat.image || '',
         cat.createdOn || ''
       ]);
       return res.status(201).json(cat);

@@ -9,15 +9,16 @@ import {
   ArrowDownLeft, 
   ArrowUpRight,
   X,
-  Upload
+  Upload,
+  FileSpreadsheet
 } from 'lucide-react';
-import type { Contact } from '../../../types/contact';
+import type { Contact, ContactType, ContactStatus } from '../../../types/contact';
 import { INITIAL_CONTACTS } from '../../../types/contact';
 import { AddContactView } from './AddContactView';
 import { ContactDetailView } from './ContactDetailView';
 import { ContactPaymentView } from './ContactPaymentView';
 import { api } from '../../../services/api';
-import { parseCSV } from '../../../utils/csvImport';
+import { parseCSV, downloadContactExcelTemplate } from '../../../utils/csvImport';
 
 interface ContactsViewProps {
   currencyCode?: string;
@@ -68,21 +69,46 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
       const text = evt.target?.result as string;
       const parsed = parseCSV(text);
       if (parsed.length > 0) {
-        const newContacts = parsed.map(c => ({
-          id: `cnt_${Date.now()}_${Math.random()}`,
-          name: c.Name || 'Unnamed Contact',
-          businessName: c['Business Name'] || '',
-          type: (c.Type || 'customer').toLowerCase(),
-          email: c.Email || '',
-          phone: c.Phone || '',
-          country: c.Country || 'PK',
-          status: 'active',
-          payables: Number(c.Payables) || 0,
-          receivables: Number(c.Receivables) || 0,
-          openingBalance: Number(c['Opening Balance']) || 0,
-          openingBalanceType: (c['Opening Balance Type'] || 'credit').toLowerCase() as 'credit' | 'debit',
-          createdOn: new Date().toISOString().split('T')[0]
-        }));
+        const newContacts: Contact[] = parsed.map(c => {
+          const typeRaw = (c.Type || c.type || 'customer').toLowerCase();
+          const type: ContactType = typeRaw === 'supplier' ? 'supplier' : typeRaw === 'both' ? 'both' : 'customer';
+          const statusRaw = (c.Status || c.status || 'active').toLowerCase();
+          const status: ContactStatus = statusRaw === 'inactive' ? 'inactive' : 'active';
+          const opBal = Number(c['Opening Balance'] || c.openingBalance) || 0;
+          const opType = ((c['Opening Balance Type'] || c.openingBalanceType || 'debit').toLowerCase() === 'credit' ? 'credit' : 'debit') as 'debit' | 'credit';
+
+          const addr = {
+            address: c.Address || c.address || '',
+            city: c.City || c.city || '',
+            province: c.Province || c.province || '',
+            postCode: c['Post Code'] || c.postCode || '',
+            country: c.Country || c.country || 'Pakistan'
+          };
+
+          return {
+            id: `cnt_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+            name: c.Name || c.name || c['Contact Name'] || 'Unnamed Contact',
+            businessName: c['Business Name'] || c.businessName || c.Company || '',
+            type,
+            email: c.Email || c.email || '',
+            phone: c.Phone || c.phone || c['Phone Number'] || '',
+            status,
+            payables: Number(c.Payables || c.payables) || 0,
+            receivables: Number(c.Receivables || c.receivables) || 0,
+            hasOpeningBalance: opBal > 0,
+            openingBalance: opBal,
+            openingBalanceType: opType,
+            primaryAddress: addr,
+            billingAddress: addr,
+            shippingAddress: addr,
+            ntn: c.NTN || c.ntn || '',
+            strn: c.STRN || c.strn || '',
+            contactPersonName: c['Contact Person Name'] || c.contactPersonName || '',
+            contactPersonPhone: c['Contact Person Phone'] || c.contactPersonPhone || '',
+            notes: c.Notes || c.notes || '',
+            createdOn: new Date().toISOString().split('T')[0]
+          };
+        });
         
         try {
           const res = await fetch('http://localhost:5000/api/contacts/bulk', {
@@ -310,14 +336,21 @@ export const ContactsView: React.FC<ContactsViewProps> = ({
           <div className="flex items-center space-x-2">
             <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImport} className="hidden" />
             <button
+              onClick={downloadContactExcelTemplate}
+              title="Download Excel / CSV Template for Contacts Import"
+              className="px-3 py-1 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded transition flex items-center gap-1 cursor-pointer"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" /> Excel Template
+            </button>
+            <button
               onClick={() => fileInputRef.current?.click()}
-              className="px-3 py-1 bg-[#0070ba] hover:bg-sky-700 text-white text-xs font-semibold rounded transition flex items-center gap-1 shadow-xs"
+              className="px-3 py-1 bg-[#0070ba] hover:bg-sky-700 text-white text-xs font-semibold rounded transition flex items-center gap-1 shadow-xs cursor-pointer"
             >
               <Upload className="w-3.5 h-3.5" /> Import
             </button>
             <button
               onClick={() => setViewMode('add')}
-              className="px-3 py-1 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded transition flex items-center gap-1"
+              className="px-3 py-1 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded transition flex items-center gap-1 cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5 text-[#0070ba]" /> Contact
             </button>

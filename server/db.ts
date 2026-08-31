@@ -59,10 +59,24 @@ export async function initDatabase(): Promise<boolean> {
           // Ignore table already exists or foreign key constraints
         }
       }
+
+      // Step 4: Ensure newly added columns exist in existing tables
+      const columnMigrations = [
+        `ALTER TABLE products ADD COLUMN image LONGTEXT;`,
+        `ALTER TABLE catalog_categories ADD COLUMN image LONGTEXT;`
+      ];
+
+      for (const migration of columnMigrations) {
+        try {
+          await pool.query(migration);
+        } catch {
+          // Column already exists or table not ready
+        }
+      }
     }
 
     isConnected = true;
-    console.log(`✅ Successfully connected to MySQL database: '${DB_NAME}'! All tables verified.`);
+    console.log(`✅ Successfully connected to MySQL database: '${DB_NAME}'! All tables & columns verified.`);
     return true;
   } catch (error: any) {
     console.warn(`⚠️ MySQL Connection Notice: Could not connect to MySQL on ${DB_HOST}:${DB_PORT} (${error.message}).`);

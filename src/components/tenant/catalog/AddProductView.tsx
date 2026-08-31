@@ -7,6 +7,7 @@ import type {
   Manufacturer, 
   UnitOfMeasure 
 } from '../../../types/catalog';
+import { ImageUpload300x300 } from './ImageUpload300x300';
 
 interface AddProductViewProps {
   categories: Category[];
@@ -69,9 +70,10 @@ export const AddProductView: React.FC<AddProductViewProps> = ({
   const [warrantyDetails, setWarrantyDetails] = useState('');
   const [variationOptions, setVariationOptions] = useState('');
 
-  // Flags & Description
+  // Flags & Description & Picture
   const [trackStock, setTrackStock] = useState(false);
   const [description, setDescription] = useState('');
+  const [image, setImage] = useState('');
   const [canSaleOrPurchase, setCanSaleOrPurchase] = useState(true);
   const [isActive, setIsActive] = useState(true);
 
@@ -95,6 +97,8 @@ export const AddProductView: React.FC<AddProductViewProps> = ({
       variationOptions: variationOptions.split(',').map(v => v.trim()).filter(Boolean),
       trackStock,
       isActive,
+      description: description.trim(),
+      image,
       unitOfMeasure: productUOM || purchaseUnit || 'Pcs'
     });
   };
@@ -410,14 +414,24 @@ export const AddProductView: React.FC<AddProductViewProps> = ({
             </label>
           </div>
 
-          <div>
-            <label className="block text-slate-600 font-medium mb-1">Description</label>
-            <textarea
-              rows={3}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="w-full px-2.5 py-1.5 border border-slate-300 rounded focus:outline-none focus:border-[#0070ba]"
+          <div className="space-y-3">
+            <ImageUpload300x300
+              value={image}
+              onChange={setImage}
+              label="Product Picture"
+              description="Restricted to max 300 × 300 px (Auto-optimized)"
             />
+
+            <div>
+              <label className="block text-slate-600 font-medium mb-1">Description</label>
+              <textarea
+                rows={3}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Product description, features, notes..."
+                className="w-full px-2.5 py-1.5 border border-slate-300 rounded focus:outline-none focus:border-[#0070ba] text-xs"
+              />
+            </div>
           </div>
         </div>
 

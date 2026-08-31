@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import type { Department } from '../../../types/catalog';
+import { ImageUpload300x300 } from './ImageUpload300x300';
 
 interface AddCategoryViewProps {
   departments: Department[];
-  onSave: (name: string, departmentName?: string) => void;
+  onSave: (name: string, departmentName?: string, image?: string) => void;
   onCancel: () => void;
 }
 
@@ -15,6 +16,7 @@ export const AddCategoryView: React.FC<AddCategoryViewProps> = ({
 }) => {
   const [categoryName, setCategoryName] = useState('');
   const [departmentName, setDepartmentName] = useState('');
+  const [image, setImage] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,7 +24,7 @@ export const AddCategoryView: React.FC<AddCategoryViewProps> = ({
       alert('Please enter category name.');
       return;
     }
-    onSave(categoryName.trim(), departmentName);
+    onSave(categoryName.trim(), departmentName, image);
   };
 
   return (
@@ -68,18 +70,27 @@ export const AddCategoryView: React.FC<AddCategoryViewProps> = ({
           </select>
         </div>
 
+        <div>
+          <ImageUpload300x300
+            value={image}
+            onChange={setImage}
+            label="Category Picture (Optional)"
+            description="Restricted to max 300 × 300 px (Auto-optimized)"
+          />
+        </div>
+
         {/* Bottom Actions matching Screenshot */}
         <div className="pt-4 border-t border-slate-200 flex items-center justify-start gap-2.5">
           <button
             type="submit"
-            className="px-6 py-2 bg-[#0070ba] hover:bg-sky-700 text-white font-bold rounded shadow-xs text-xs transition"
+            className="px-6 py-2 bg-[#0070ba] hover:bg-sky-700 text-white font-bold rounded shadow-xs text-xs transition cursor-pointer"
           >
             Add
           </button>
           <button
             type="button"
             onClick={onCancel}
-            className="px-6 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded text-xs transition"
+            className="px-6 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded text-xs transition cursor-pointer"
           >
             Close
           </button>
@@ -88,3 +99,4 @@ export const AddCategoryView: React.FC<AddCategoryViewProps> = ({
     </div>
   );
 };
+

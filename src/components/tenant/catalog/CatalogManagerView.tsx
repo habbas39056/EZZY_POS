@@ -163,8 +163,13 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
           localStorage.setItem('adwiselabs_catalog_locations', JSON.stringify(locs));
         }
         if (prods && Array.isArray(prods) && prods.length > 0) {
-          setProducts(prods);
-          localStorage.setItem('adwiselabs_catalog_products', JSON.stringify(prods));
+          setProducts(prev => {
+            const remoteIds = new Set(prods.map(p => p.id));
+            const localOnly = prev.filter(p => !remoteIds.has(p.id));
+            const merged = [...localOnly, ...prods];
+            localStorage.setItem('adwiselabs_catalog_products', JSON.stringify(merged));
+            return merged;
+          });
         }
       } catch (e) {}
     };
@@ -277,11 +282,12 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
     api.deleteRegion(id).catch(() => {});
   };
 
-  const handleSaveCategory = (name: string, departmentName?: string) => {
+  const handleSaveCategory = (name: string, departmentName?: string, image?: string) => {
     const newCat: Category = {
       id: `cat_${Date.now()}`,
       name,
       departmentName: departmentName || '',
+      image: image || '',
       createdOn: getFormattedDate()
     };
     saveCategories([newCat, ...categories]);
@@ -319,15 +325,37 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
     api.deleteLocation(id).catch(() => {});
   };
 
-  const handleSaveProduct = (prodData: Omit<Product, 'id' | 'createdOn'>) => {
+  const handleSaveProduct = async (prodData: Omit<Product, 'id' | 'createdOn'>) => {
     const newProd: Product = {
       ...prodData,
       id: `prod_${Date.now()}`,
       createdOn: getFormattedDate()
     };
-    saveProducts([newProd, ...products]);
-    api.saveProduct(newProd).catch(() => {});
+    const updated = [newProd, ...products];
+    saveProducts(updated);
+    try {
+      await api.saveProduct(newProd);
+    } catch (e) {
+      console.warn('API save failed, saved locally:', e);
+    }
     setIsAddingProduct(false);
+  };
+
+  const handleUpdateProduct = (updatedProduct: Product) => {
+    const updated = products.map(p => p.id === updatedProduct.id ? updatedProduct : p);
+    saveProducts(updated);
+    api.saveProduct(updatedProduct).catch(() => {});
+  };
+
+  const handleDeleteProduct = (id: string) => {
+    const updated = products.filter(p => p.id !== id);
+    saveProducts(updated);
+    api.deleteProduct(id).catch(() => {});
+  };
+
+  const handleBulkAddProducts = (newProducts: Product[]) => {
+    const updated = [...newProducts, ...products];
+    saveProducts(updated);
   };
 
   // Generic UOM Add
@@ -563,6 +591,13 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
       {/* Product sub-view */}
       {activeTab === 'product' ? (
         <ProductsListView
+          products={products}
+          categories={categories}
+          locations={locations}
+          manufacturers={manufacturers}
+          onUpdateProduct={handleUpdateProduct}
+          onDeleteProduct={handleDeleteProduct}
+          onBulkAddProducts={handleBulkAddProducts}
           currencyCode={currencyCode}
           currencySymbol={currencySymbol}
           onOpenAddProduct={() => setIsAddingProduct(true)}
@@ -798,7 +833,22 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
                 <tbody className="divide-y divide-slate-100 text-[11px]">
                   {filteredCategories.map(cat => (
                     <tr key={cat.id} className="hover:bg-slate-50/80 transition">
-                      <td className="px-5 py-3 font-semibold text-slate-800">{cat.name}</td>
+                      <td className="px-5 py-3 font-semibold text-slate-800">
+                        <div className="flex items-center gap-2.5">
+                          {cat.image ? (
+                            <img
+                              src={cat.image}
+                              alt={cat.name}
+                              className="w-6 h-6 rounded object-contain bg-slate-50 border border-slate-200 shrink-0"
+                            />
+                          ) : (
+                            <div className="w-6 h-6 rounded bg-slate-100 border border-slate-200 text-slate-400 flex items-center justify-center shrink-0">
+                              <FolderTree className="w-3 h-3" />
+                            </div>
+                          )}
+                          <span>{cat.name}</span>
+                        </div>
+                      </td>
                       <td className="px-5 py-3 text-slate-500 font-mono text-[10.5px]">{cat.createdOn}</td>
                       <td className="px-5 py-3 text-slate-600 font-medium">
                         {cat.departmentName || '-'}
