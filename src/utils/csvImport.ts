@@ -60,6 +60,7 @@ export function downloadProductExcelTemplate(): void {
     'Active',
     'Warranty Details',
     'Variation Options',
+    'Image URL',
     'Description'
   ];
 
@@ -79,6 +80,7 @@ export function downloadProductExcelTemplate(): void {
       'TRUE',
       '1 Year Official Warranty',
       'Black, Silver, Blue',
+      '',
       'High fidelity noise cancelling wireless headphones'
     ],
     [
@@ -96,6 +98,7 @@ export function downloadProductExcelTemplate(): void {
       'TRUE',
       '6 Months Replacement',
       'RGB Backlit, Blue Switch, Red Switch',
+      '',
       'Tactile mechanical switches with customizable RGB lighting'
     ],
     [
@@ -113,9 +116,11 @@ export function downloadProductExcelTemplate(): void {
       'TRUE',
       '',
       'Small, Medium, Large, XL',
+      '',
       '100% Premium Combed Cotton regular fit t-shirt'
     ]
   ];
+
 
   // Excel BOM (\uFEFF) ensures UTF-8 accents and characters render properly in Microsoft Excel
   let csvContent = '\uFEFF';

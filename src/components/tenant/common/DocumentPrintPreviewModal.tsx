@@ -13,7 +13,7 @@ interface Props {
   document: Invoice;
   rawDocument?: any;
   onClose: () => void;
-  documentType?: 'Invoice' | 'Debit Note' | 'Credit Note' | 'Payment Voucher';
+  documentType?: 'Invoice' | 'Quotation' | 'Debit Note' | 'Credit Note' | 'Payment Voucher';
 }
 
 export const DocumentPrintPreviewModal: React.FC<Props> = ({ document, rawDocument, onClose, documentType = 'Invoice' }) => {
@@ -58,19 +58,52 @@ export const DocumentPrintPreviewModal: React.FC<Props> = ({ document, rawDocume
 
   const renderTemplate = () => {
     let dynamicTitle: string = documentType;
+    let numberLabel = customization.general.invoiceNumber?.label || 'Invoice No.';
+    let dateLabel = customization.general.invoiceDate?.label || 'Invoice Date';
+    let showBalance = customization.totals.balance?.show ?? true;
+
     if (documentType === 'Invoice') {
       dynamicTitle = customization.general.invoiceTitle || 'Invoice';
+    } else if (documentType === 'Quotation') {
+      dynamicTitle = 'QUOTATION';
+      numberLabel = 'Quotation No.';
+      dateLabel = 'Quotation Date';
+      showBalance = false;
+    } else if (documentType === 'Credit Note') {
+      dynamicTitle = 'CREDIT NOTE';
+      numberLabel = 'Credit Note No.';
+      dateLabel = 'Date';
+    } else if (documentType === 'Debit Note') {
+      dynamicTitle = 'DEBIT NOTE';
+      numberLabel = 'Debit Note No.';
+      dateLabel = 'Date';
     } else if (documentType === 'Payment Voucher') {
-      // Differentiate between supplier payment and customer payment if needed, 
-      // or just use 'Payment Receipt' for customers and 'Payment Voucher' for suppliers.
       dynamicTitle = rawDocument?.supplierId ? 'Payment Voucher' : 'Payment Receipt';
+      numberLabel = 'Voucher / Ref No.';
+      dateLabel = 'Payment Date';
+      showBalance = false;
     }
 
-    const dynamicCustomization = {
+    const dynamicCustomization: InvoiceTemplateCustomization = {
       ...customization,
       general: {
         ...customization.general,
-        invoiceTitle: dynamicTitle
+        invoiceTitle: dynamicTitle,
+        invoiceNumber: {
+          ...customization.general.invoiceNumber,
+          label: numberLabel
+        },
+        invoiceDate: {
+          ...customization.general.invoiceDate,
+          label: dateLabel
+        }
+      },
+      totals: {
+        ...customization.totals,
+        balance: {
+          ...customization.totals.balance,
+          show: showBalance
+        }
       }
     };
 
@@ -83,6 +116,7 @@ export const DocumentPrintPreviewModal: React.FC<Props> = ({ document, rawDocume
         return <Template1 {...props} />;
     }
   };
+
 
   return (
     <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex flex-col font-sans text-xs">

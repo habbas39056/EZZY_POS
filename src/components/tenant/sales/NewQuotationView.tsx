@@ -94,10 +94,6 @@ export const NewQuotationView: React.FC<NewQuotationViewProps> = ({
     return saved ? JSON.parse(saved) : INITIAL_UOM;
   });
 
-  const [products] = useState<Product[]>(() => {
-    const saved = localStorage.getItem('adwiselabs_catalog_products');
-    return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
-  });
 
   const getTodayFormatted = () => {
     const now = new Date();
@@ -106,7 +102,25 @@ export const NewQuotationView: React.FC<NewQuotationViewProps> = ({
     const year = now.getFullYear();
     return `${day}-${month}-${year}`;
   };
+  const [products, setProducts] = useState<Product[]>(() => {
+    const saved = localStorage.getItem('adwiselabs_catalog_products');
+    return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
+  });
 
+  useEffect(() => {
+    const loadProducts = async () => {
+      try {
+        const remote = await api.getProducts();
+        if (remote && Array.isArray(remote) && remote.length > 0) {
+          setProducts(remote);
+          localStorage.setItem('adwiselabs_catalog_products', JSON.stringify(remote));
+        }
+      } catch (e) {}
+    };
+    loadProducts();
+  }, []);
+
+  // Header State
   const [customerId, setCustomerId] = useState('');
   const [referenceNo, setReferenceNo] = useState('');
   const [salesPerson, setSalesPerson] = useState('');
@@ -128,8 +142,10 @@ export const NewQuotationView: React.FC<NewQuotationViewProps> = ({
     {
       id: 'row_1',
       item: '',
-      unit: '',
-      qtyOrdered: 0,
+      variantId: '',
+      variantName: '',
+      unit: 'Pcs',
+      qtyOrdered: 1,
       unitPrice: 0,
       discount: 0,
       account: '',
@@ -140,8 +156,10 @@ export const NewQuotationView: React.FC<NewQuotationViewProps> = ({
     {
       id: 'row_2',
       item: '',
-      unit: '',
-      qtyOrdered: 0,
+      variantId: '',
+      variantName: '',
+      unit: 'Pcs',
+      qtyOrdered: 1,
       unitPrice: 0,
       discount: 0,
       account: '',
@@ -155,17 +173,86 @@ export const NewQuotationView: React.FC<NewQuotationViewProps> = ({
     const updated = [...items];
     const item = { ...updated[index], [field]: value };
 
-    // Auto-fill from Product selection
+    // Auto-fill from Product or Variant selection
     if (field === 'item') {
-      const matched = products.find(p => p.name === value || p.code === value);
-      if (matched) {
-        item.productId = matched.id;
-        item.unitPrice = matched.salePrice || matched.purchasePrice || 0;
-        item.unit = matched.unitOfMeasure || 'Pcs';
+      const cleanVal = String(value).trim().toLowerCase();
+      let matchedProd = products.find(p => p.name.toLowerCase().trim() === cleanVal || p.code.toLowerCase().trim() === cleanVal || p.id === String(value));
+      let matchedVariant = null;
+
+      if (!matchedProd) {
+        for (const p of products) {
+          if (p.variants && p.variants.length > 0) {
+            const v = p.variants.find(v => 
+              `${p.name} (${v.name})`.toLowerCase().trim() === cleanVal || 
+              (v.sku && v.sku.toLowerCase().trim() === cleanVal) || 
+              v.name.toLowerCase().trim() === cleanVal
+            );
+            if (v) {
+              matchedProd = p;
+              matchedVariant = v;
+              break;
+            }
+          }
+        }
+      }
+
+      if (matchedProd) {
+        item.productId = matchedProd.id;
+        item.unit = matchedProd.unitOfMeasure || 'Pcs';
+        if (!item.qtyOrdered || Number(item.qtyOrdered) <= 0) {
+          item.qtyOrdered = 1;
+        }
+
+        if (matchedVariant) {
+          item.variantId = matchedVariant.id;
+          item.variantName = matchedVariant.name;
+          item.unitPrice = Number(matchedVariant.salePrice) || 0;
+        } else if (matchedProd.variants && matchedProd.variants.length > 0) {
+          const firstVar = matchedProd.variants[0];
+          item.variantId = firstVar.id;
+          item.variantName = firstVar.name;
+          item.unitPrice = Number(firstVar.salePrice) || 0;
+        } else {
+          item.variantId = '';
+          item.variantName = '';
+          item.unitPrice = Number(matchedProd.salePrice || matchedProd.purchasePrice) || 0;
+        }
+      } else {
+        item.productId = '';
+        item.variantId = '';
+        item.variantName = '';
       }
     }
 
-    const qty = Number(item.qtyOrdered) || 0;
+    if (field === 'variantId') {
+      const cleanDesc = (item.item || '').trim().toLowerCase();
+      const parentProd = products.find(p => p.id === item.productId || p.name.toLowerCase().trim() === cleanDesc || p.code.toLowerCase().trim() === cleanDesc);
+      if (parentProd && parentProd.variants) {
+        const v = parentProd.variants.find(varItem => varItem.id === value || varItem.name.toLowerCase().trim() === String(value).toLowerCase().trim());
+        if (v) {
+          if (!item.qtyOrdered || Number(item.qtyOrdered) <= 0) {
+            item.qtyOrdered = 1;
+          }
+          item.variantId = v.id;
+          item.variantName = v.name;
+          item.unitPrice = Number(v.salePrice) || 0;
+        } else {
+          item.variantId = '';
+          item.variantName = '';
+          item.unitPrice = Number(parentProd.salePrice) || 0;
+        }
+      }
+    }
+
+    if (field === 'variantName') {
+      item.variantName = String(value);
+      if (!item.variantId) {
+        item.variantId = `var_custom_${Date.now()}`;
+      }
+    }
+
+
+    const qty = Number(item.qtyOrdered) > 0 ? Number(item.qtyOrdered) : (item.item || Number(item.unitPrice) > 0 ? 1 : 0);
     const price = Number(item.unitPrice) || 0;
     const itemDisc = Number(item.discount) || 0;
     const taxRate = Number(item.taxRatePercent) || 0;
@@ -193,8 +280,10 @@ export const NewQuotationView: React.FC<NewQuotationViewProps> = ({
       {
         id: `row_${Date.now()}`,
         item: '',
-        unit: '',
-        qtyOrdered: 0,
+        variantId: '',
+        variantName: '',
+        unit: 'Pcs',
+        qtyOrdered: 1,
         unitPrice: 0,
         discount: 0,
         account: '',
@@ -205,12 +294,18 @@ export const NewQuotationView: React.FC<NewQuotationViewProps> = ({
     ]);
   };
 
+
   const handleRemoveRow = (index: number) => {
     if (items.length <= 1) return;
     setItems(items.filter((_, i) => i !== index));
   };
 
-  const subtotal = items.reduce((acc, it) => acc + ((Number(it.qtyOrdered) || 0) * (Number(it.unitPrice) || 0) - (Number(it.discount) || 0)), 0);
+  const subtotal = items.reduce((acc, it) => {
+    const q = Number(it.qtyOrdered) > 0 ? Number(it.qtyOrdered) : (it.item || Number(it.unitPrice) > 0 ? 1 : 0);
+    const p = Number(it.unitPrice) || 0;
+    const d = Number(it.discount) || 0;
+    return acc + Math.max(0, (q * p) - d);
+  }, 0);
   const totalItemTax = items.reduce((acc, it) => acc + (Number(it.taxAmount) || 0), 0);
   const addTaxAmt = (subtotal * additionalTaxPercent) / 100;
   const totalTax = totalItemTax + addTaxAmt;
@@ -218,34 +313,61 @@ export const NewQuotationView: React.FC<NewQuotationViewProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customerId) {
-      alert('Please select a Customer.');
-      return;
-    }
-    if (!quotationNo.trim()) {
-      alert('Please enter a Quotation Number.');
-      return;
-    }
+    let finalCustId = customerId;
+    let finalCustName = 'Walk-in Customer';
 
     const customerObj = contacts.find(c => c.id === customerId);
+    if (customerObj) {
+      finalCustName = customerObj.name;
+    } else if (customerId && customerId.trim()) {
+      finalCustName = customerId.trim();
+    } else if (contacts.length > 0) {
+      finalCustId = contacts[0].id;
+      finalCustName = contacts[0].name;
+    }
+
+    if (!finalCustId) {
+      finalCustId = `cnt_${Date.now()}`;
+    }
+
+    const validItems = items.filter(it => (it.item && it.item.trim()) || Number(it.unitPrice) > 0);
+    const normalizedItems = validItems.map(it => {
+      const q = Number(it.qtyOrdered) > 0 ? Number(it.qtyOrdered) : 1;
+      const p = Number(it.unitPrice) || 0;
+      const d = Number(it.discount) || 0;
+      const sub = Math.max(0, (q * p) - d);
+      return {
+        ...it,
+        qtyOrdered: q,
+        unitPrice: p,
+        netAmount: Number(it.netAmount) > 0 ? Number(it.netAmount) : sub
+      };
+    });
+
+    const computedSubtotal = normalizedItems.reduce((acc, it) => acc + (it.qtyOrdered * it.unitPrice - (Number(it.discount) || 0)), 0);
+    const computedItemTax = normalizedItems.reduce((acc, it) => acc + (Number(it.taxAmount) || 0), 0);
+    const computedAddTax = (computedSubtotal * additionalTaxPercent) / 100;
+    const computedTotalTax = computedItemTax + computedAddTax;
+    const computedGrossTotal = Math.max(0, computedSubtotal + (isTaxInclusive ? 0 : computedTotalTax));
+
     const newQuot: Quotation = {
       id: `quot_${Date.now()}`,
-      quotationNumber: quotationNo.trim(),
+      quotationNumber: quotationNo.trim() || `QT-${Date.now()}`,
       referenceNo,
-      customerId,
-      customerName: customerObj ? customerObj.name : 'Unknown Customer',
-      salesPerson,
-      region,
-      date: quotationDate,
-      dueDate,
+      customerId: finalCustId,
+      customerName: finalCustName,
+      salesPerson: salesPerson || 'Muhammad Tariq Khan',
+      region: region || 'Karachi (HQ)',
+      date: quotationDate || getTodayFormatted(),
+      dueDate: dueDate || quotationDate || getTodayFormatted(),
       discountType,
-      items: items.filter(it => it.item.trim() || it.qtyOrdered > 0),
+      items: normalizedItems.length > 0 ? normalizedItems : items,
       specialInstructions,
       isTaxInclusive,
-      subtotal,
+      subtotal: computedGrossTotal > 0 ? computedSubtotal : subtotal,
       additionalTaxRate: additionalTaxPercent,
-      totalTax,
-      grossTotal,
+      totalTax: computedGrossTotal > 0 ? computedTotalTax : totalTax,
+      grossTotal: computedGrossTotal > 0 ? computedGrossTotal : grossTotal,
       status: 'Draft',
       notes: noteText,
       createdAt: new Date().toISOString()
@@ -255,6 +377,7 @@ export const NewQuotationView: React.FC<NewQuotationViewProps> = ({
     api.saveQuotation(newQuot).catch(() => {});
     alert(`Quotation ${newQuot.quotationNumber} saved successfully!`);
   };
+
 
   return (
     <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-6 max-w-7xl mx-auto my-3 text-xs text-slate-700 font-sans select-none space-y-6">
@@ -419,12 +542,13 @@ export const NewQuotationView: React.FC<NewQuotationViewProps> = ({
             </div>
           </div>
 
-          {/* 9-Column Quotation Items Table */}
+          {/* 10-Column Quotation Items Table with Variation Support */}
           <div className="overflow-x-auto border border-slate-200 rounded-lg">
             <table className="w-full text-left text-xs">
               <thead className="bg-[#f8fafc] border-b border-slate-200 text-slate-600 font-bold text-[10.5px]">
                 <tr>
                   <th className="px-3 py-2 min-w-[180px]">Item</th>
+                  <th className="px-2.5 py-2 min-w-[140px]">Variation</th>
                   <th className="px-2.5 py-2 w-28">Unit</th>
                   <th className="px-2.5 py-2 w-20 text-center">Qty Ordered</th>
                   <th className="px-2.5 py-2 w-24 text-right">Unit Price</th>
@@ -450,10 +574,67 @@ export const NewQuotationView: React.FC<NewQuotationViewProps> = ({
                       />
                       <datalist id={`quot-product-list-${idx}`}>
                         {products.map(p => (
-                          <option key={p.id} value={p.name} />
+                          <option key={p.id} value={p.name} label={`Rs ${p.salePrice}`} />
                         ))}
                       </datalist>
                     </td>
+
+                    {/* Dedicated Product Variation Dropdown / Input */}
+                    <td className="p-1.5">
+                      {(() => {
+                        const cleanDesc = (row.item || '').trim().toLowerCase();
+                        const selectedProd = products.find(p => 
+                          (row.productId && p.id === row.productId) || 
+                          (cleanDesc && p.name.toLowerCase().trim() === cleanDesc) ||
+                          (cleanDesc && p.code.toLowerCase().trim() === cleanDesc)
+                        );
+                        const hasVars = selectedProd && selectedProd.variants && selectedProd.variants.length > 0;
+
+                        if (hasVars && selectedProd?.variants) {
+                          return (
+                            <select
+                              value={row.variantId || ''}
+                              onChange={(e) => handleItemChange(idx, 'variantId', e.target.value)}
+                              className="w-full px-2 py-1 border border-sky-400 bg-sky-50 text-[#0070ba] font-bold rounded text-xs focus:border-[#0070ba] focus:bg-white transition cursor-pointer"
+                            >
+                              <option value="">Select Variation ({selectedProd.variants.length})</option>
+                              {selectedProd.variants.map(v => (
+                                <option key={v.id} value={v.id}>
+                                  {v.name} — Rs {Number(v.salePrice || 0).toLocaleString()}
+                                </option>
+                              ))}
+                            </select>
+                          );
+                        }
+
+                        if (row.variantName) {
+                          return (
+                            <input
+                              type="text"
+                              placeholder="Variant Name"
+                              value={row.variantName}
+                              onChange={(e) => handleItemChange(idx, 'variantName', e.target.value)}
+                              className="w-full px-2 py-1 border border-sky-300 bg-white rounded text-xs font-medium text-slate-800 focus:border-[#0070ba]"
+                            />
+                          );
+                        }
+
+                        return (
+                          <div className="flex items-center justify-center">
+                            <button
+                              type="button"
+                              onClick={() => handleItemChange(idx, 'variantName', 'Standard')}
+                              className="text-[11px] text-slate-400 hover:text-[#0070ba] hover:underline font-mono cursor-pointer"
+                              title="Click to specify variation"
+                            >
+                              — (+ Var)
+                            </button>
+                          </div>
+                        );
+                      })()}
+                    </td>
+
+
 
                     {/* Unit */}
                     <td className="p-1.5">

@@ -275,6 +275,38 @@ export const api = {
     return null;
   },
 
+  // 3.7 Variations CRUD
+  async getVariations() {
+    try {
+      const res = await fetch(`${API_BASE_URL}/catalog/variations`);
+      if (res.ok) return await res.json();
+    } catch {}
+    return null;
+  },
+
+  async saveVariation(variation: any) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/catalog/variations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(variation)
+      });
+      if (res.ok) return await res.json();
+    } catch {}
+    return null;
+  },
+
+  async deleteVariation(id: string) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/catalog/variations/${id}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) return await res.json();
+    } catch {}
+    return null;
+  },
+
+
   // 4. Sales Invoices
   async getInvoices() {
     try {

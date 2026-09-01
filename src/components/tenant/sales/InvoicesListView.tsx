@@ -16,7 +16,10 @@ import {
   Tag,
   AlarmClock,
   Info,
-  MoreVertical
+  MoreVertical,
+  Eye,
+  Printer,
+  Download
 } from 'lucide-react';
 import type { Invoice } from '../../../types/sales';
 import { INITIAL_INVOICES } from '../../../types/sales';
@@ -29,8 +32,10 @@ import { InvoiceRemindersView } from './InvoiceRemindersView';
 import { NewCreditNoteView } from './NewCreditNoteView';
 import { NewRecurringInvoiceView } from './NewRecurringInvoiceView';
 import { NewCustomerPaymentView } from './NewCustomerPaymentView';
+import { DocumentPrintPreviewModal } from '../common/DocumentPrintPreviewModal';
 
 import { api } from '../../../services/api';
+
 
 interface InvoicesListViewProps {
   onOpenNewInvoice: () => void;
@@ -72,11 +77,13 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
 
   // Sub-view states matching Manage dropdown
+  const [previewInvoice, setPreviewInvoice] = useState<Invoice | null>(null);
   const [selectedRecurringInvoice, setSelectedRecurringInvoice] = useState<Invoice | null>(null);
   const [selectedPaymentInvoice, setSelectedPaymentInvoice] = useState<Invoice | null>(null);
   const [selectedCreditNoteInvoice, setSelectedCreditNoteInvoice] = useState<Invoice | null>(null);
   const [selectedAdjustmentInvoice, setSelectedAdjustmentInvoice] = useState<Invoice | null>(null);
   const [selectedReminderInvoice, setSelectedReminderInvoice] = useState<Invoice | null>(null);
+
 
   const sanitizeInvoices = (list: Invoice[]): Invoice[] => {
     const seen = new Set<string>();
@@ -174,8 +181,8 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({
   const loadInvoices = async () => {
     try {
       const data = await api.getInvoices();
-      if (data) {
-        setInvoices(data);
+      if (data && Array.isArray(data) && data.length > 0) {
+        setInvoices(sanitizeInvoices(data));
       } else {
         const saved = localStorage.getItem('adwiselabs_invoices');
         if (saved) {
@@ -190,6 +197,7 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({
       console.error('Error fetching invoices:', e);
     }
   };
+
 
   useEffect(() => {
     loadInvoices();
@@ -527,7 +535,11 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({
                     </td>
 
                     {/* Invoice No. (Clickable Blue Text) */}
-                    <td className="px-4 py-3 font-semibold text-[#0070ba] font-mono cursor-pointer hover:underline">
+                    <td 
+                      onClick={() => setPreviewInvoice(inv)}
+                      className="px-4 py-3 font-semibold text-[#0070ba] font-mono cursor-pointer hover:underline"
+                      title="Click to View / Print Invoice"
+                    >
                       {inv.invoiceNumber}
                     </td>
 
@@ -598,6 +610,18 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({
                           onClick={(e) => e.stopPropagation()}
                           className="absolute right-4 top-8 w-44 bg-white rounded-lg shadow-xl border border-slate-200 py-1.5 z-50 text-left text-xs"
                         >
+                          {/* 0. View Invoice */}
+                          <button
+                            onClick={() => {
+                              setPreviewInvoice(inv);
+                              setActiveMenuId(null);
+                            }}
+                            className="w-full px-3.5 py-2 flex items-center gap-2.5 hover:bg-sky-50 text-[#0070ba] font-bold transition cursor-pointer border-b border-slate-100"
+                          >
+                            <Eye className="w-4 h-4 text-[#0070ba]" />
+                            <span>View Invoice</span>
+                          </button>
+
                           {/* 1. Recurring */}
                           <button
                             onClick={() => {
@@ -609,6 +633,7 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({
                             <Clock className="w-4 h-4 text-slate-700" />
                             <span>Recurring</span>
                           </button>
+
 
                           {/* 2. Add Payment */}
                           <button
@@ -732,6 +757,17 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* View & Print Document Modal */}
+      {previewInvoice && (
+        <DocumentPrintPreviewModal
+          document={previewInvoice}
+          onClose={() => setPreviewInvoice(null)}
+          documentType="Invoice"
+        />
+      )}
     </div>
   );
 };
+
+

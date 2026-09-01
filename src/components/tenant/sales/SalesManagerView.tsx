@@ -66,19 +66,41 @@ export const SalesManagerView: React.FC<SalesManagerViewProps> = ({
   }, [initialTab, initialAction]);
 
   const handleSaveInvoice = async (newInv: Invoice) => {
+    try {
+      const saved = localStorage.getItem('adwiselabs_invoices');
+      const list: Invoice[] = saved ? JSON.parse(saved) : [];
+      const filtered = list.filter(i => i.id !== newInv.id);
+      localStorage.setItem('adwiselabs_invoices', JSON.stringify([newInv, ...filtered]));
+    } catch {}
+
     await api.saveInvoice(newInv);
     setInvoiceAction('list');
   };
 
   const handleSaveQuotation = async (newQuot: Quotation) => {
+    try {
+      const saved = localStorage.getItem('adwiselabs_quotations');
+      const list: Quotation[] = saved ? JSON.parse(saved) : [];
+      const filtered = list.filter(q => q.id !== newQuot.id);
+      localStorage.setItem('adwiselabs_quotations', JSON.stringify([newQuot, ...filtered]));
+    } catch {}
+
     await api.saveQuotation(newQuot);
     setQuotationAction('list');
   };
 
   const handleSaveCreditNote = async (newCN: CreditNote) => {
+    try {
+      const saved = localStorage.getItem('adwiselabs_credit_notes');
+      const list: CreditNote[] = saved ? JSON.parse(saved) : [];
+      const filtered = list.filter(c => c.id !== newCN.id);
+      localStorage.setItem('adwiselabs_credit_notes', JSON.stringify([newCN, ...filtered]));
+    } catch {}
+
     await api.saveCreditNote(newCN);
     setCnAction('list');
   };
+
 
   const handleSaveRecurring = (newRec: RecurringInvoice) => {
     // For now we don't have recurring API yet, keep local storage

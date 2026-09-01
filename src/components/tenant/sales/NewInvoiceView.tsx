@@ -114,10 +114,23 @@ export const NewInvoiceView: React.FC<NewInvoiceViewProps> = ({
     return saved ? JSON.parse(saved) : INITIAL_UOM;
   });
 
-  const [products] = useState<Product[]>(() => {
+  const [products, setProducts] = useState<Product[]>(() => {
     const saved = localStorage.getItem('adwiselabs_catalog_products');
     return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
   });
+
+  useEffect(() => {
+    const loadProducts = async () => {
+      try {
+        const remote = await api.getProducts();
+        if (remote && Array.isArray(remote) && remote.length > 0) {
+          setProducts(remote);
+          localStorage.setItem('adwiselabs_catalog_products', JSON.stringify(remote));
+        }
+      } catch (e) {}
+    };
+    loadProducts();
+  }, []);
 
   const getTodayFormatted = () => {
     const now = new Date();
@@ -148,17 +161,19 @@ export const NewInvoiceView: React.FC<NewInvoiceViewProps> = ({
   const [newNoteText, setNewNoteText] = useState('');
   const [notesList, setNotesList] = useState<InvoiceNote[]>([]);
 
-  // Line items
+  // Line items with default qty: 1
   const [items, setItems] = useState<InvoiceItemRow[]>(() => {
     if (initialQuotation && initialQuotation.items && initialQuotation.items.length > 0) {
       return initialQuotation.items.map((it, idx) => ({
         id: `row_${Date.now()}_${idx}`,
         itemDescription: it.item || '',
         productId: it.productId || '',
+        variantId: it.variantId || '',
+        variantName: it.variantName || '',
         batchNumber: '',
         batchExpiryDate: '',
         uom: it.unit || 'Pcs',
-        qty: Number(it.qtyOrdered) || 1,
+        qty: Number(it.qtyOrdered) > 0 ? Number(it.qtyOrdered) : 1,
         unitPrice: Number(it.unitPrice) || 0,
         location: '',
         discount: Number(it.discount) || 0,
@@ -172,10 +187,12 @@ export const NewInvoiceView: React.FC<NewInvoiceViewProps> = ({
       {
         id: 'row_1',
         itemDescription: '',
+        variantId: '',
+        variantName: '',
         batchNumber: '',
         batchExpiryDate: '',
-        uom: '',
-        qty: 0,
+        uom: 'Pcs',
+        qty: 1,
         unitPrice: 0,
         location: '',
         discount: 0,
@@ -187,10 +204,12 @@ export const NewInvoiceView: React.FC<NewInvoiceViewProps> = ({
       {
         id: 'row_2',
         itemDescription: '',
+        variantId: '',
+        variantName: '',
         batchNumber: '',
         batchExpiryDate: '',
-        uom: '',
-        qty: 0,
+        uom: 'Pcs',
+        qty: 1,
         unitPrice: 0,
         location: '',
         discount: 0,
@@ -206,18 +225,86 @@ export const NewInvoiceView: React.FC<NewInvoiceViewProps> = ({
     const updated = [...items];
     const item = { ...updated[index], [field]: value };
 
-    // Auto-fill from Product selection
+    // Auto-fill from Product or Variant selection
     if (field === 'itemDescription') {
-      const matched = products.find(p => p.name === value || p.code === value);
-      if (matched) {
-        item.productId = matched.id;
-        item.unitPrice = matched.salePrice || matched.purchasePrice || 0;
-        item.location = matched.location || '';
-        item.uom = matched.unitOfMeasure || 'Pcs';
+      const cleanVal = String(value).trim().toLowerCase();
+      let matchedProd = products.find(p => p.name.toLowerCase().trim() === cleanVal || p.code.toLowerCase().trim() === cleanVal || p.id === String(value));
+      let matchedVariant = null;
+
+      if (!matchedProd) {
+        for (const p of products) {
+          if (p.variants && p.variants.length > 0) {
+            const v = p.variants.find(v => 
+              `${p.name} (${v.name})`.toLowerCase().trim() === cleanVal || 
+              (v.sku && v.sku.toLowerCase().trim() === cleanVal) || 
+              v.name.toLowerCase().trim() === cleanVal
+            );
+            if (v) {
+              matchedProd = p;
+              matchedVariant = v;
+              break;
+            }
+          }
+        }
+      }
+
+      if (matchedProd) {
+        item.productId = matchedProd.id;
+        item.location = matchedProd.location || '';
+        item.uom = matchedProd.unitOfMeasure || 'Pcs';
+        if (!item.qty || Number(item.qty) <= 0) {
+          item.qty = 1;
+        }
+
+        if (matchedVariant) {
+          item.variantId = matchedVariant.id;
+          item.variantName = matchedVariant.name;
+          item.unitPrice = Number(matchedVariant.salePrice) || 0;
+        } else if (matchedProd.variants && matchedProd.variants.length > 0) {
+          const firstVar = matchedProd.variants[0];
+          item.variantId = firstVar.id;
+          item.variantName = firstVar.name;
+          item.unitPrice = Number(firstVar.salePrice) || 0;
+        } else {
+          item.variantId = '';
+          item.variantName = '';
+          item.unitPrice = Number(matchedProd.salePrice || matchedProd.purchasePrice) || 0;
+        }
+      } else {
+        item.productId = '';
+        item.variantId = '';
+        item.variantName = '';
       }
     }
 
-    const qty = Number(item.qty) || 0;
+    if (field === 'variantId') {
+      const cleanDesc = (item.itemDescription || '').trim().toLowerCase();
+      const parentProd = products.find(p => p.id === item.productId || p.name.toLowerCase().trim() === cleanDesc || p.code.toLowerCase().trim() === cleanDesc);
+      if (parentProd && parentProd.variants) {
+        const v = parentProd.variants.find(varItem => varItem.id === value || varItem.name.toLowerCase().trim() === String(value).toLowerCase().trim());
+        if (v) {
+          if (!item.qty || Number(item.qty) <= 0) {
+            item.qty = 1;
+          }
+          item.variantId = v.id;
+          item.variantName = v.name;
+          item.unitPrice = Number(v.salePrice) || 0;
+        } else {
+          item.variantId = '';
+          item.variantName = '';
+          item.unitPrice = Number(parentProd.salePrice) || 0;
+        }
+      }
+    }
+
+    if (field === 'variantName') {
+      item.variantName = String(value);
+      if (!item.variantId) {
+        item.variantId = `var_custom_${Date.now()}`;
+      }
+    }
+
+    const qty = Number(item.qty) > 0 ? Number(item.qty) : (item.itemDescription || Number(item.unitPrice) > 0 ? 1 : 0);
     const price = Number(item.unitPrice) || 0;
     const itemDisc = Number(item.discount) || 0;
     const taxRate = Number(item.taxRatePercent) || 0;
@@ -239,16 +326,19 @@ export const NewInvoiceView: React.FC<NewInvoiceViewProps> = ({
     setItems(updated);
   };
 
+
   const handleAddRow = () => {
     setItems([
       ...items,
       {
         id: `row_${Date.now()}`,
         itemDescription: '',
+        variantId: '',
+        variantName: '',
         batchNumber: '',
         batchExpiryDate: '',
-        uom: '',
-        qty: 0,
+        uom: 'Pcs',
+        qty: 1,
         unitPrice: 0,
         location: '',
         discount: 0,
@@ -265,7 +355,12 @@ export const NewInvoiceView: React.FC<NewInvoiceViewProps> = ({
     setItems(items.filter((_, i) => i !== index));
   };
 
-  const subtotal = items.reduce((acc, it) => acc + ((Number(it.qty) || 0) * (Number(it.unitPrice) || 0) - (Number(it.discount) || 0)), 0);
+  const subtotal = items.reduce((acc, it) => {
+    const q = Number(it.qty) > 0 ? Number(it.qty) : ((it.itemDescription || Number(it.unitPrice) > 0) ? 1 : 0);
+    const p = Number(it.unitPrice) || 0;
+    const d = Number(it.discount) || 0;
+    return acc + Math.max(0, (q * p) - d);
+  }, 0);
   const totalItemTax = items.reduce((acc, it) => acc + (Number(it.taxAmount) || 0), 0);
   const addTaxAmt = (subtotal * additionalTaxPercent) / 100;
   const totalTax = totalItemTax + addTaxAmt;
@@ -284,41 +379,71 @@ export const NewInvoiceView: React.FC<NewInvoiceViewProps> = ({
   };
 
   const handleSubmit = (status: 'Approved' | 'Draft') => {
-    if (!customerId) {
-      alert('Please select a Customer.');
-      return;
-    }
-    if (!invoiceNo.trim()) {
-      alert('Please enter an Invoice Number.');
-      return;
+    let finalCustId = customerId;
+    let finalCustName = 'Walk-in Customer';
+
+    const customerObj = contacts.find(c => c.id === customerId) || invoiceCustomers.find(c => c.id === customerId);
+    if (customerObj) {
+      finalCustName = customerObj.name;
+    } else if (customerId && customerId.trim()) {
+      finalCustName = customerId.trim();
+    } else if (contacts.length > 0) {
+      finalCustId = contacts[0].id;
+      finalCustName = contacts[0].name;
     }
 
-    const customerObj = contacts.find(c => c.id === customerId);
+    if (!finalCustId) {
+      finalCustId = `cnt_${Date.now()}`;
+    }
+
+    const cleanInvoiceNo = invoiceNo.trim() || `0${Math.floor(1040 + Math.random() * 60)}`;
+
+    const validItems = items.filter(it => (it.itemDescription && it.itemDescription.trim()) || Number(it.unitPrice) > 0);
+    const normalizedItems = validItems.map(it => {
+      const q = Number(it.qty) > 0 ? Number(it.qty) : 1;
+      const p = Number(it.unitPrice) || 0;
+      const d = Number(it.discount) || 0;
+      const sub = Math.max(0, (q * p) - d);
+      return {
+        ...it,
+        qty: q,
+        unitPrice: p,
+        netAmount: Number(it.netAmount) > 0 ? Number(it.netAmount) : sub
+      };
+    });
+
+    const computedSubtotal = normalizedItems.reduce((acc, it) => acc + (it.qty * it.unitPrice - (Number(it.discount) || 0)), 0);
+    const computedItemTax = normalizedItems.reduce((acc, it) => acc + (Number(it.taxAmount) || 0), 0);
+    const computedAddTax = (computedSubtotal * additionalTaxPercent) / 100;
+    const computedTotalTax = computedItemTax + computedAddTax;
+    const computedGrossTotal = Math.max(0, computedSubtotal + (isTaxInclusive ? 0 : computedTotalTax));
+
     const newInv: Invoice = {
       id: `inv_${Date.now()}`,
-      invoiceNumber: `${invoicePrefix}${invoiceNo.trim()}`,
-      serialNumber: `INV-2026-${invoiceNo.slice(-3)}`,
-      customerId,
-      customerName: customerObj ? customerObj.name : 'Unknown Customer',
-      salesPerson,
-      region,
-      invoiceDate,
-      dueDate,
+      invoiceNumber: cleanInvoiceNo.startsWith('INV-') ? cleanInvoiceNo : `${invoicePrefix}${cleanInvoiceNo}`,
+      serialNumber: `INV-2026-${cleanInvoiceNo.slice(-3)}`,
+      customerId: finalCustId,
+      customerName: finalCustName,
+      salesPerson: salesPerson || 'Muhammad Tariq Khan',
+      region: region || 'Karachi (HQ)',
+      invoiceDate: invoiceDate || getTodayFormatted(),
+      dueDate: dueDate || invoiceDate || getTodayFormatted(),
       requiresDeliveryChallan,
       discountType,
-      items: items.filter(it => it.itemDescription.trim() || it.qty > 0),
+      items: normalizedItems.length > 0 ? normalizedItems : items,
       specialInstructions,
       isTaxInclusive,
-      subtotal,
+      subtotal: computedGrossTotal > 0 ? computedSubtotal : subtotal,
       discount: 0,
       additionalTaxRate: additionalTaxPercent,
-      totalTax,
-      grossTotal,
-      balance: grossTotal,
-      status: status === 'Approved' ? 'Approved' : 'Draft',
+      totalTax: computedGrossTotal > 0 ? computedTotalTax : totalTax,
+      grossTotal: computedGrossTotal > 0 ? computedGrossTotal : grossTotal,
+      balance: computedGrossTotal > 0 ? computedGrossTotal : grossTotal,
+      status: status === 'Approved' ? 'Receive Payment' : 'Unapproved',
       notes: notesList,
       createdAt: new Date().toISOString()
     };
+
 
     // If converted from quotation, mark quotation as Closed
     if (initialQuotation) {
@@ -343,7 +468,7 @@ export const NewInvoiceView: React.FC<NewInvoiceViewProps> = ({
         <h2 className="text-base font-bold text-slate-800">New Invoice</h2>
         <button
           onClick={onCancel}
-          className="text-xs text-slate-500 hover:text-slate-800 flex items-center gap-1 font-semibold transition"
+          className="text-xs text-slate-500 hover:text-slate-800 flex items-center gap-1 font-semibold transition cursor-pointer"
         >
           <ArrowLeft className="w-3.5 h-3.5" /> Back to Invoices
         </button>
@@ -357,16 +482,14 @@ export const NewInvoiceView: React.FC<NewInvoiceViewProps> = ({
         <div className="space-y-3.5">
           <div>
             <label className="block text-slate-600 font-medium mb-1">
-              Customer *
+              Customer <span className="text-rose-500">*</span>
             </label>
             <select
               value={customerId}
               onChange={(e) => setCustomerId(e.target.value)}
-              className={`w-full px-3 py-1.5 border rounded focus:outline-none text-xs bg-white text-slate-800 ${
-                !customerId ? 'border-rose-400' : 'border-slate-300 focus:border-[#0070ba]'
-              }`}
+              className="w-full px-3 py-1.5 border border-slate-300 rounded focus:outline-none focus:border-[#0070ba] text-xs bg-white text-slate-800"
             >
-              <option value="">{customerId ? 'Select Customer' : 'Customer is required'}</option>
+              <option value="">{contacts.length > 0 ? 'Select Customer' : 'Walk-in / Cash Customer'}</option>
               {contacts.length > 0 ? (
                 contacts.filter(c => !c.type || c.type === 'customer' || c.type === 'both').map(c => (
                   <option key={c.id} value={c.id}>{c.name} {c.businessName ? `(${c.businessName})` : ''}</option>
@@ -383,11 +506,12 @@ export const NewInvoiceView: React.FC<NewInvoiceViewProps> = ({
             <button
               type="button"
               onClick={onOpenAddContact}
-              className="mt-1 text-xs text-[#0070ba] hover:underline font-semibold flex items-center gap-1"
+              className="mt-1 text-xs text-[#0070ba] hover:underline font-semibold flex items-center gap-1 cursor-pointer"
             >
               + Add Contact
             </button>
           </div>
+
 
           <div>
             <label className="block text-slate-600 font-medium mb-1">
@@ -512,13 +636,14 @@ export const NewInvoiceView: React.FC<NewInvoiceViewProps> = ({
           </div>
         </div>
 
-        {/* 13-Column Table matching Screenshot */}
+        {/* 14-Column Table matching Screenshot with Variation Support */}
         <div className="overflow-x-auto border border-slate-200 rounded-lg">
           <table className="w-full text-left text-xs">
             <thead className="bg-[#f8fafc] border-b border-slate-200 text-slate-600 font-bold text-[10.5px]">
               <tr>
                 <th className="px-2 py-2 w-8 text-center">#</th>
                 <th className="px-2.5 py-2 min-w-[150px]">Item / Description</th>
+                <th className="px-2 py-2 min-w-[140px]">Variation</th>
                 <th className="px-2 py-2 w-24 text-center">Batch Number</th>
                 <th className="px-2 py-2 w-28 text-center">Batch Expiry Date</th>
                 <th className="px-2 py-2 w-24">UOM</th>
@@ -552,10 +677,66 @@ export const NewInvoiceView: React.FC<NewInvoiceViewProps> = ({
                     />
                     <datalist id={`inv-product-list-${idx}`}>
                       {products.map(p => (
-                        <option key={p.id} value={p.name} />
+                        <option key={p.id} value={p.name} label={`Rs ${p.salePrice}`} />
                       ))}
                     </datalist>
                   </td>
+
+                  {/* Dedicated Product Variation Dropdown / Input */}
+                  <td className="p-1">
+                    {(() => {
+                      const cleanDesc = (row.itemDescription || '').trim().toLowerCase();
+                      const selectedProd = products.find(p => 
+                        (row.productId && p.id === row.productId) || 
+                        (cleanDesc && p.name.toLowerCase().trim() === cleanDesc) ||
+                        (cleanDesc && p.code.toLowerCase().trim() === cleanDesc)
+                      );
+                      const hasVars = selectedProd && selectedProd.variants && selectedProd.variants.length > 0;
+
+                      if (hasVars && selectedProd?.variants) {
+                        return (
+                          <select
+                            value={row.variantId || ''}
+                            onChange={(e) => handleItemChange(idx, 'variantId', e.target.value)}
+                            className="w-full px-2 py-1 border border-sky-400 bg-sky-50 text-[#0070ba] font-bold rounded text-xs focus:border-[#0070ba] focus:bg-white transition cursor-pointer"
+                          >
+                            <option value="">Select Variation ({selectedProd.variants.length})</option>
+                            {selectedProd.variants.map(v => (
+                              <option key={v.id} value={v.id}>
+                                {v.name} — Rs {Number(v.salePrice || 0).toLocaleString()}
+                              </option>
+                            ))}
+                          </select>
+                        );
+                      }
+
+                      if (row.variantName) {
+                        return (
+                          <input
+                            type="text"
+                            placeholder="Variant Name"
+                            value={row.variantName}
+                            onChange={(e) => handleItemChange(idx, 'variantName', e.target.value)}
+                            className="w-full px-2 py-1 border border-sky-300 bg-white rounded text-xs font-medium text-slate-800 focus:border-[#0070ba]"
+                          />
+                        );
+                      }
+
+                      return (
+                        <div className="flex items-center justify-center">
+                          <button
+                            type="button"
+                            onClick={() => handleItemChange(idx, 'variantName', 'Standard')}
+                            className="text-[11px] text-slate-400 hover:text-[#0070ba] hover:underline font-mono cursor-pointer"
+                            title="Click to specify variation"
+                          >
+                            — (+ Var)
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </td>
+
 
                   {/* Batch Number */}
                   <td className="p-1">
@@ -567,6 +748,7 @@ export const NewInvoiceView: React.FC<NewInvoiceViewProps> = ({
                       className="w-full px-1.5 py-1 border border-slate-200 rounded text-center text-slate-500 placeholder-slate-400 text-[10.5px]"
                     />
                   </td>
+
 
                   {/* Batch Expiry Date */}
                   <td className="p-1">

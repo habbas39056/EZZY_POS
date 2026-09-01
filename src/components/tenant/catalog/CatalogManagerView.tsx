@@ -7,6 +7,7 @@ import {
   Scale, 
   Package, 
   MapPin, 
+  SlidersHorizontal,
   Plus, 
   Trash2, 
   Pencil,
@@ -23,6 +24,7 @@ import type {
   Manufacturer, 
   Region, 
   Category, 
+  Variation,
   UnitOfMeasure, 
   Location,
   Product 
@@ -32,6 +34,7 @@ import {
   INITIAL_MANUFACTURERS, 
   INITIAL_REGIONS, 
   INITIAL_CATEGORIES, 
+  INITIAL_VARIATIONS,
   INITIAL_UOM, 
   INITIAL_LOCATIONS,
   INITIAL_PRODUCTS
@@ -40,12 +43,13 @@ import { AddDepartmentView } from './AddDepartmentView';
 import { AddManufacturerView } from './AddManufacturerView';
 import { AddRegionView } from './AddRegionView';
 import { AddCategoryView } from './AddCategoryView';
+import { AddVariationView } from './AddVariationView';
 import { AddLocationView } from './AddLocationView';
 import { AddProductView } from './AddProductView';
 import { api } from '../../../services/api';
 import { ProductsListView } from './ProductsListView';
 
-export type CatalogSubTab = 'department' | 'manufacturer' | 'region' | 'category' | 'uom' | 'product' | 'location';
+export type CatalogSubTab = 'department' | 'manufacturer' | 'region' | 'category' | 'variation' | 'uom' | 'product' | 'location';
 
 interface CatalogManagerViewProps {
   initialTab?: CatalogSubTab;
@@ -68,6 +72,7 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
     setIsAddingManufacturer(false);
     setIsAddingRegion(false);
     setIsAddingCategory(false);
+    setIsAddingVariation(false);
     setIsAddingLocation(false);
     setIsAddingProduct(false);
     setSearchQuery('');
@@ -80,6 +85,9 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
   const [editingRegion, setEditingRegion] = useState<Region | null>(null);
   const [activeRegionMenuId, setActiveRegionMenuId] = useState<string | null>(null);
   const [isAddingCategory, setIsAddingCategory] = useState(false);
+  const [isAddingVariation, setIsAddingVariation] = useState(false);
+  const [editingVariation, setEditingVariation] = useState<Variation | null>(null);
+  const [activeVariationMenuId, setActiveVariationMenuId] = useState<string | null>(null);
   const [isAddingLocation, setIsAddingLocation] = useState(false);
   const [editingLocation, setEditingLocation] = useState<Location | null>(null);
   const [activeLocationMenuId, setActiveLocationMenuId] = useState<string | null>(null);
@@ -111,6 +119,11 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
     return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
   });
 
+  const [variations, setVariations] = useState<Variation[]>(() => {
+    const saved = localStorage.getItem('adwiselabs_catalog_variations');
+    return saved ? JSON.parse(saved) : INITIAL_VARIATIONS;
+  });
+
   const [uomList, setUomList] = useState<UnitOfMeasure[]>(() => {
     const saved = localStorage.getItem('adwiselabs_catalog_uom');
     return saved ? JSON.parse(saved) : INITIAL_UOM;
@@ -129,11 +142,12 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
   useEffect(() => {
     const loadAllCatalogData = async () => {
       try {
-        const [cats, depts, mfgs, regs, uoms, locs, prods] = await Promise.all([
+        const [cats, depts, mfgs, regs, vars, uoms, locs, prods] = await Promise.all([
           api.getCategories(),
           api.getDepartments(),
           api.getManufacturers(),
           api.getRegions(),
+          api.getVariations(),
           api.getUom(),
           api.getLocations(),
           api.getProducts()
@@ -154,6 +168,10 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
           setRegions(regs);
           localStorage.setItem('adwiselabs_catalog_regions', JSON.stringify(regs));
         }
+        if (vars && Array.isArray(vars) && vars.length > 0) {
+          setVariations(vars);
+          localStorage.setItem('adwiselabs_catalog_variations', JSON.stringify(vars));
+        }
         if (uoms && Array.isArray(uoms) && uoms.length > 0) {
           setUomList(uoms);
           localStorage.setItem('adwiselabs_catalog_uom', JSON.stringify(uoms));
@@ -173,12 +191,12 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
         }
       } catch (e) {}
     };
-    loadAllCatalogData();
   }, []);
 
   // Search filter & pagination
   const [searchQuery, setSearchQuery] = useState('');
   const [itemsPerPage, setItemsPerPage] = useState<number>(50);
+
 
   // Persistence helpers
   const saveDepartments = (data: Department[]) => {
@@ -199,6 +217,11 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
   const saveCategories = (data: Category[]) => {
     setCategories(data);
     localStorage.setItem('adwiselabs_catalog_categories', JSON.stringify(data));
+  };
+
+  const saveVariations = (data: Variation[]) => {
+    setVariations(data);
+    localStorage.setItem('adwiselabs_catalog_variations', JSON.stringify(data));
   };
 
   const saveUom = (data: UnitOfMeasure[]) => {
@@ -298,6 +321,39 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
   const handleDeleteCategory = (id: string) => {
     saveCategories(categories.filter(c => c.id !== id));
     api.deleteCategory(id).catch(() => {});
+  };
+
+  const handleSaveVariation = (variationData: { name: string; code?: string; values: string[]; description?: string }) => {
+    if (editingVariation) {
+      const updatedItem: Variation = {
+        ...editingVariation,
+        name: variationData.name,
+        code: variationData.code || '',
+        values: variationData.values,
+        description: variationData.description || ''
+      };
+      const updated = variations.map(v => v.id === editingVariation.id ? updatedItem : v);
+      saveVariations(updated);
+      api.saveVariation(updatedItem).catch(() => {});
+      setEditingVariation(null);
+    } else {
+      const newVar: Variation = {
+        id: `var_${Date.now()}`,
+        name: variationData.name,
+        code: variationData.code || '',
+        values: variationData.values,
+        description: variationData.description || '',
+        createdOn: getFormattedDate()
+      };
+      saveVariations([newVar, ...variations]);
+      api.saveVariation(newVar).catch(() => {});
+    }
+    setIsAddingVariation(false);
+  };
+
+  const handleDeleteVariation = (id: string) => {
+    saveVariations(variations.filter(v => v.id !== id));
+    api.deleteVariation(id).catch(() => {});
   };
 
   const handleSaveLocation = (name: string, parentLocation?: string) => {
@@ -428,6 +484,19 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
     );
   }
 
+  if (isAddingVariation) {
+    return (
+      <AddVariationView
+        initialVariation={editingVariation}
+        onSave={handleSaveVariation}
+        onCancel={() => {
+          setEditingVariation(null);
+          setIsAddingVariation(false);
+        }}
+      />
+    );
+  }
+
   if (isAddingLocation) {
     return (
       <AddLocationView
@@ -441,6 +510,7 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
       />
     );
   }
+
 
   if (isAddingProduct) {
     return (
@@ -474,6 +544,13 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
     !searchQuery || 
     c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (c.departmentName && c.departmentName.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
+
+  const filteredVariations = variations.filter(v => 
+    !searchQuery || 
+    v.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    (v.code && v.code.toLowerCase().includes(searchQuery.toLowerCase())) ||
+    (v.values && v.values.some(val => val.toLowerCase().includes(searchQuery.toLowerCase())))
   );
 
   const filteredUom = uomList.filter(u => 
@@ -546,6 +623,7 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
           </button>
 
           {/* Unit of Measures */}
+
           <button
             onClick={() => { setActiveTab('uom'); setSearchQuery(''); }}
             className={`px-3 py-1.5 rounded-t-md flex items-center gap-1.5 transition ${
@@ -615,11 +693,17 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
                  activeTab === 'manufacturer' ? 'Manufacturers' :
                  activeTab === 'location' ? 'Locations' :
                  activeTab === 'category' ? 'Categories' :
+                 activeTab === 'variation' ? 'Variations' :
                  `${activeTab}s`}
               </h2>
               {activeTab === 'region' && (
                 <p className="text-[11px] text-slate-500 mt-0.5">
                   Manage region hierarchy for transaction and reporting.
+                </p>
+              )}
+              {activeTab === 'variation' && (
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Create and manage product variation attributes, option sets, and standard values.
                 </p>
               )}
               {activeTab === 'location' && (
@@ -633,42 +717,49 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
               {activeTab === 'department' ? (
                 <button
                   onClick={() => setIsAddingDepartment(true)}
-                  className="px-3 py-1 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded transition flex items-center gap-1 shadow-xs"
+                  className="px-3 py-1 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded transition flex items-center gap-1 shadow-xs cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5 text-[#0070ba]" /> Department
                 </button>
               ) : activeTab === 'manufacturer' ? (
                 <button
                   onClick={() => setIsAddingManufacturer(true)}
-                  className="px-3 py-1 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded transition flex items-center gap-1 shadow-xs"
+                  className="px-3 py-1 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded transition flex items-center gap-1 shadow-xs cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5 text-[#0070ba]" /> Manufacturer
                 </button>
               ) : activeTab === 'region' ? (
                 <button
                   onClick={() => setIsAddingRegion(true)}
-                  className="px-3 py-1 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded transition flex items-center gap-1 shadow-xs"
+                  className="px-3 py-1 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded transition flex items-center gap-1 shadow-xs cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5 text-[#0070ba]" /> Add Region
                 </button>
               ) : activeTab === 'category' ? (
                 <button
                   onClick={() => setIsAddingCategory(true)}
-                  className="px-3 py-1 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded transition flex items-center gap-1 shadow-xs"
+                  className="px-3 py-1 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded transition flex items-center gap-1 shadow-xs cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5 text-[#0070ba]" /> Category
+                </button>
+              ) : activeTab === 'variation' ? (
+                <button
+                  onClick={() => setIsAddingVariation(true)}
+                  className="px-3 py-1 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded transition flex items-center gap-1 shadow-xs cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5 text-[#0070ba]" /> Add Variation
                 </button>
               ) : activeTab === 'location' ? (
                 <button
                   onClick={() => setIsAddingLocation(true)}
-                  className="px-3 py-1 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded transition flex items-center gap-1 shadow-xs"
+                  className="px-3 py-1 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded transition flex items-center gap-1 shadow-xs cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5 text-[#0070ba]" /> Add Location
                 </button>
               ) : (
                 <button
                   onClick={() => setGenericAddModal(activeTab)}
-                  className="px-3 py-1 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded transition flex items-center gap-1 shadow-xs capitalize"
+                  className="px-3 py-1 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded transition flex items-center gap-1 shadow-xs capitalize cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5 text-[#0070ba]" /> {activeTab}
                 </button>
@@ -684,6 +775,7 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
                 placeholder={
                   activeTab === 'region' ? 'Search region or parent region' : 
                   activeTab === 'location' ? 'Search location or parent location' : 
+                  activeTab === 'variation' ? 'Search variation name, code, or option' :
                   'Search'
                 }
                 value={searchQuery}
@@ -713,7 +805,7 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
                       <td className="px-5 py-3 text-right">
                         <button
                           onClick={() => handleDeleteDepartment(dept.id)}
-                          className="p-1 rounded hover:bg-rose-50 text-slate-500 hover:text-rose-600 transition"
+                          className="p-1 rounded hover:bg-rose-50 text-slate-500 hover:text-rose-600 transition cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -724,7 +816,7 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
               </table>
             )}
 
-            {/* 2. MANUFACTURERS TABLE (SCREENSHOT 1) */}
+            {/* 2. MANUFACTURERS TABLE */}
             {activeTab === 'manufacturer' && (
               <table className="w-full text-left text-xs text-slate-700">
                 <thead className="bg-white border-b border-slate-200 text-slate-600 font-semibold text-[11px]">
@@ -745,7 +837,7 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
                       <td className="px-5 py-3 text-right">
                         <button
                           onClick={() => handleDeleteManufacturer(mfg.id)}
-                          className="p-1 rounded hover:bg-rose-50 text-slate-500 hover:text-rose-600 transition"
+                          className="p-1 rounded hover:bg-rose-50 text-slate-500 hover:text-rose-600 transition cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -756,7 +848,7 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
               </table>
             )}
 
-            {/* 3. REGIONS TABLE (SCREENSHOT 3) */}
+            {/* 3. REGIONS TABLE */}
             {activeTab === 'region' && (
               <table className="w-full text-left text-xs text-slate-700">
                 <thead className="bg-white border-b border-slate-200 text-slate-600 font-semibold text-[11px]">
@@ -784,7 +876,7 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
                           •••
                         </button>
 
-                        {/* Dropdown Menu matching screenshot */}
+                        {/* Dropdown Menu */}
                         {activeRegionMenuId === reg.id && (
                           <div className="absolute right-4 top-8 w-28 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-50 text-left text-xs">
                             <button
@@ -819,7 +911,7 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
               </table>
             )}
 
-            {/* 4. CATEGORIES TABLE (SCREENSHOT 1) */}
+            {/* 4. CATEGORIES TABLE */}
             {activeTab === 'category' && (
               <table className="w-full text-left text-xs text-slate-700">
                 <thead className="bg-white border-b border-slate-200 text-slate-600 font-semibold text-[11px]">
@@ -856,10 +948,108 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
                       <td className="px-5 py-3 text-right">
                         <button
                           onClick={() => handleDeleteCategory(cat.id)}
-                          className="p-1 rounded hover:bg-rose-50 text-slate-500 hover:text-rose-600 transition"
+                          className="p-1 rounded hover:bg-rose-50 text-slate-500 hover:text-rose-600 transition cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            {/* 4.5 VARIATIONS TABLE */}
+            {activeTab === 'variation' && (
+              <table className="w-full text-left text-xs text-slate-700">
+                <thead className="bg-white border-b border-slate-200 text-slate-600 font-semibold text-[11px]">
+                  <tr>
+                    <th className="px-5 py-2.5">Variation Name</th>
+                    <th className="px-5 py-2.5">Code / Prefix</th>
+                    <th className="px-5 py-2.5">Option Values</th>
+                    <th className="px-5 py-2.5">Created On</th>
+                    <th className="px-5 py-2.5 text-center w-24">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-[11px]">
+                  {filteredVariations.map(variation => (
+                    <tr key={variation.id} className="hover:bg-slate-50/80 transition relative">
+                      <td className="px-5 py-3 font-semibold text-slate-800">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded bg-sky-50 text-[#0070ba] flex items-center justify-center border border-sky-200 shrink-0">
+                            <SlidersHorizontal className="w-3.5 h-3.5" />
+                          </div>
+                          <div>
+                            <span className="font-bold text-slate-800">{variation.name}</span>
+                            {variation.description && (
+                              <p className="text-[10px] text-slate-400 font-normal truncate max-w-xs">{variation.description}</p>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-5 py-3 font-mono font-semibold text-slate-600">
+                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[10.5px]">
+                          {variation.code || '-'}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3">
+                        <div className="flex flex-wrap gap-1 items-center max-w-lg">
+                          {variation.values.slice(0, 6).map((val, idx) => (
+                            <span
+                              key={idx}
+                              className="px-2 py-0.5 rounded-full bg-sky-50 text-sky-800 border border-sky-200 text-[10px] font-semibold shadow-2xs"
+                            >
+                              {val}
+                            </span>
+                          ))}
+                          {variation.values.length > 6 && (
+                            <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[9.5px] font-bold">
+                              +{variation.values.length - 6} more
+                            </span>
+                          )}
+                          <span className="text-[10px] text-slate-400 font-medium ml-1">
+                            ({variation.values.length} option{variation.values.length === 1 ? '' : 's'})
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-5 py-3 text-slate-500 font-mono text-[10.5px]">{variation.createdOn}</td>
+                      <td className="px-5 py-3 text-center relative">
+                        <button
+                          onClick={() => setActiveVariationMenuId(activeVariationMenuId === variation.id ? null : variation.id)}
+                          className="p-1 rounded-md text-sky-700 hover:text-slate-900 hover:bg-slate-100 transition inline-flex items-center justify-center font-bold text-sm tracking-widest cursor-pointer"
+                          title="Variation Actions"
+                        >
+                          •••
+                        </button>
+
+                        {/* Dropdown Menu */}
+                        {activeVariationMenuId === variation.id && (
+                          <div className="absolute right-4 top-8 w-28 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-50 text-left text-xs">
+                            <button
+                              onClick={() => {
+                                setEditingVariation(variation);
+                                setIsAddingVariation(true);
+                                setActiveVariationMenuId(null);
+                              }}
+                              className="w-full px-3.5 py-2 flex items-center gap-2.5 hover:bg-slate-50 text-slate-700 font-medium transition cursor-pointer"
+                            >
+                              <Pencil className="w-3.5 h-3.5 text-slate-600" />
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (confirm(`Are you sure you want to delete variation "${variation.name}"?`)) {
+                                  handleDeleteVariation(variation.id);
+                                }
+                                setActiveVariationMenuId(null);
+                              }}
+                              className="w-full px-3.5 py-2 flex items-center gap-2.5 hover:bg-slate-50 text-slate-700 font-medium transition cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-slate-600" />
+                              <span>Delete</span>
+                            </button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -887,7 +1077,7 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
                       <td className="px-5 py-3 text-right">
                         <button
                           onClick={() => handleDeleteUom(uom.id)}
-                          className="p-1 rounded hover:bg-rose-50 text-slate-500 hover:text-rose-600 transition"
+                          className="p-1 rounded hover:bg-rose-50 text-slate-500 hover:text-rose-600 transition cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -983,11 +1173,13 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
                    activeTab === 'manufacturer' ? manufacturers.length :
                    activeTab === 'region' ? regions.length :
                    activeTab === 'category' ? categories.length :
+                   activeTab === 'variation' ? variations.length :
                    activeTab === 'uom' ? uomList.length : locations.length} of {
                    activeTab === 'department' ? departments.length : 
                    activeTab === 'manufacturer' ? manufacturers.length :
                    activeTab === 'region' ? regions.length :
                    activeTab === 'category' ? categories.length :
+                   activeTab === 'variation' ? variations.length :
                    activeTab === 'uom' ? uomList.length : locations.length
               }
             </div>
@@ -1009,6 +1201,7 @@ export const CatalogManagerView: React.FC<CatalogManagerViewProps> = ({
           </div>
         </div>
       )}
+
 
       {/* Generic Add Item Modal (UOM) */}
       {genericAddModal && (

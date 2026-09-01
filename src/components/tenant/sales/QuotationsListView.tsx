@@ -8,16 +8,48 @@ import {
   ChevronsRight,
   CheckCircle,
   FileText,
-  X
+  X,
+  Eye,
+  Printer,
+  Download
 } from 'lucide-react';
 import type { Quotation } from '../../../types/quotation';
 import { INITIAL_QUOTATIONS } from '../../../types/quotation';
+import type { Invoice } from '../../../types/sales';
 import type { Region } from '../../../types/catalog';
 import { INITIAL_REGIONS } from '../../../types/catalog';
 import { DatePicker } from '../../common/DatePicker';
 import { isDateInRange } from '../../../utils/dateUtils';
+import { DocumentPrintPreviewModal } from '../common/DocumentPrintPreviewModal';
 
 import { api } from '../../../services/api';
+
+const adaptQuotationToInvoice = (q: Quotation): Invoice => ({
+  id: q.id,
+  invoiceNumber: q.quotationNumber,
+  customerId: q.customerId,
+  customerName: q.customerName,
+  invoiceDate: q.date,
+  dueDate: q.dueDate || '',
+  region: q.region || '',
+  subtotal: q.subtotal || 0,
+  totalTax: q.totalTax || 0,
+  grossTotal: q.grossTotal || 0,
+  balance: 0,
+  status: (q.status === 'Closed' ? 'Completed' : 'Unapproved') as any,
+  notes: [] as any,
+  items: (q.items || []).map(it => ({
+    id: it.id,
+    itemDescription: it.item || (it as any).itemDescription || '',
+    variantName: it.variantName || '',
+    qty: it.qtyOrdered || (it as any).qty || 1,
+    unitPrice: it.unitPrice || 0,
+    taxAmount: it.taxAmount || 0,
+    netAmount: it.netAmount || 0,
+    discountAmount: it.discount || 0
+  })) as any,
+  createdOn: q.createdAt || q.date
+} as any);
 
 interface QuotationsListViewProps {
   onOpenNewQuotation: () => void;
@@ -77,8 +109,12 @@ export const QuotationsListView: React.FC<QuotationsListViewProps> = ({
   const [itemsPerPage, setItemsPerPage] = useState<number>(50);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
 
+  // Preview Quotation state
+  const [previewQuotation, setPreviewQuotation] = useState<Quotation | null>(null);
+
   // Conversion Notes Modal
   const [activeConversionNote, setActiveConversionNote] = useState<Quotation | null>(null);
+
 
   const filteredQuotations = quotations.filter(q => {
     const term = searchQuery.toLowerCase();
@@ -162,24 +198,28 @@ export const QuotationsListView: React.FC<QuotationsListViewProps> = ({
             <select
               value={regionFilter}
               onChange={(e) => setRegionFilter(e.target.value)}
-              className="w-full px-2.5 py-1.5 border border-slate-300 rounded focus:outline-none focus:border-[#0070ba] text-xs bg-white text-slate-800"
+              className="w-full px-3 py-1.5 border border-slate-300 rounded text-xs bg-white text-slate-700 outline-none"
             >
-              <option value="">Select Region</option>
+              <option value="">Select</option>
               {regions.map(r => (
                 <option key={r.id} value={r.name}>{r.name}</option>
               ))}
             </select>
+
           </div>
 
-          {/* Search Button (Dark Navy) */}
-          <div className="sm:col-span-1 flex items-end">
-            <button
-              type="button"
-              onClick={() => {}}
-              className="w-full py-1.5 bg-[#001e3d] hover:bg-slate-900 text-white font-bold rounded text-xs transition shadow-xs"
+          {/* Status Dropdown */}
+          <div>
+            <label className="block text-slate-600 font-semibold mb-1 text-[11px]">Status</label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full px-3 py-1.5 border border-slate-300 rounded text-xs bg-white text-slate-700 outline-none"
             >
-              Search
-            </button>
+              <option value="">Select</option>
+              <option value="Partial">Partial</option>
+              <option value="Closed">Closed</option>
+            </select>
           </div>
         </div>
       </div>
@@ -189,32 +229,32 @@ export const QuotationsListView: React.FC<QuotationsListViewProps> = ({
       {/* ======================================================== */}
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
         {/* Header Bar */}
-        <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+        <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
           <h2 className="text-base font-bold text-slate-800">Quotations</h2>
 
           <button
             onClick={onOpenNewQuotation}
-            className="px-3.5 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-bold rounded transition flex items-center gap-1 shadow-2xs"
+            className="px-3.5 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-bold rounded transition flex items-center gap-1 shadow-2xs cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5 text-[#0070ba]" /> Quotation
           </button>
         </div>
 
-        {/* Full 7-Column Table matching Screenshot 1 */}
-        <div className="overflow-x-auto min-h-[380px]">
+        {/* 7-Column Quotations Table matching Screenshot 1 */}
+        <div className="overflow-x-auto min-h-[350px]">
           <table className="w-full text-left text-xs text-slate-700">
             <thead className="bg-slate-50/90 border-b border-slate-200 text-slate-700 font-bold text-[11px] uppercase tracking-wider">
               <tr>
-                <th className="px-4 py-3 min-w-[130px]">Quotation No.</th>
+                <th className="px-4 py-3 min-w-[140px]">Quotation No.</th>
                 <th className="px-4 py-3 min-w-[180px]">Customer</th>
-                <th className="px-4 py-3 min-w-[110px]">Date</th>
-                <th className="px-4 py-3 min-w-[110px]">Due Date</th>
-                <th className="px-4 py-3 text-right min-w-[120px]">Total Amount</th>
-                <th className="px-4 py-3 text-center min-w-[100px]">Status</th>
-                <th className="px-4 py-3 text-center min-w-[80px]">Manage</th>
+                <th className="px-4 py-3 min-w-[120px]">Date</th>
+                <th className="px-4 py-3 min-w-[120px]">Due Date</th>
+                <th className="px-4 py-3 text-right min-w-[130px]">Total</th>
+                <th className="px-4 py-3 text-center min-w-[110px]">Status</th>
+                <th className="px-4 py-3 text-center w-20">Manage</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-[11px]">
+            <tbody className="divide-y divide-slate-100 font-sans">
               {filteredQuotations.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="text-center py-12 text-slate-400">
@@ -225,7 +265,11 @@ export const QuotationsListView: React.FC<QuotationsListViewProps> = ({
                 filteredQuotations.map(q => (
                   <tr key={q.id} className="hover:bg-slate-50/80 transition relative">
                     {/* Quotation No. (Clickable Blue Link) */}
-                    <td className="px-4 py-3 font-semibold text-[#0070ba] font-mono cursor-pointer hover:underline">
+                    <td 
+                      onClick={() => setPreviewQuotation(q)}
+                      className="px-4 py-3 font-semibold text-[#0070ba] font-mono cursor-pointer hover:underline"
+                      title="Click to View / Print Quotation"
+                    >
                       {q.quotationNumber}
                     </td>
 
@@ -262,7 +306,7 @@ export const QuotationsListView: React.FC<QuotationsListViewProps> = ({
                       )}
                     </td>
 
-                    {/* Manage (...) with Convert to Invoice and Conversion Notes */}
+                    {/* Manage (...) with View, Convert to Invoice and Conversion Notes */}
                     <td className="px-4 py-3 text-center relative">
                       <button
                         onClick={(e) => {
@@ -279,6 +323,18 @@ export const QuotationsListView: React.FC<QuotationsListViewProps> = ({
                           onClick={(e) => e.stopPropagation()}
                           className="absolute right-4 top-8 w-44 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-50 text-left text-xs"
                         >
+                          {/* Option 0: View Quotation */}
+                          <button
+                            onClick={() => {
+                              setPreviewQuotation(q);
+                              setActiveMenuId(null);
+                            }}
+                            className="w-full px-3.5 py-2 flex items-center gap-2 hover:bg-sky-50 text-[#0070ba] font-bold cursor-pointer border-b border-slate-100"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-[#0070ba]" />
+                            <span>View Quotation</span>
+                          </button>
+
                           {/* Option 1: Convert to Invoice (shown for Partial status) */}
                           {q.status !== 'Closed' && (
                             <button
@@ -315,6 +371,7 @@ export const QuotationsListView: React.FC<QuotationsListViewProps> = ({
             </tbody>
           </table>
         </div>
+
 
         {/* 3. Pagination Footer matching Screenshot 1 */}
         <div className="px-5 py-3 bg-white border-t border-slate-100 flex items-center justify-end space-x-4 text-[11px] text-slate-500">
@@ -392,6 +449,16 @@ export const QuotationsListView: React.FC<QuotationsListViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* View, Print & Download Quotation Modal */}
+      {previewQuotation && (
+        <DocumentPrintPreviewModal
+          document={adaptQuotationToInvoice(previewQuotation)}
+          onClose={() => setPreviewQuotation(null)}
+          documentType="Quotation"
+        />
+      )}
     </div>
   );
 };
+

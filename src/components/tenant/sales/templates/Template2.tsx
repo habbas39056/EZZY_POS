@@ -89,7 +89,14 @@ export const Template2: React.FC<InvoiceTemplateProps> = ({ invoice, orgDetails,
             {invoice.items.map((item, idx) => (
               <tr key={idx}>
                 {lineItems.itemNo.show && <td className="py-3 text-sm text-slate-700">{idx + 1}</td>}
-                {lineItems.itemDescription.show && <td className="py-3 text-sm text-slate-700">{item.itemDescription}</td>}
+                {lineItems.itemDescription.show && (
+                  <td className="py-3 text-sm text-slate-700">
+                    <div className="font-medium text-slate-900">{item.itemDescription}</div>
+                    {(item as any).variantName && (
+                      <div className="text-[11px] text-slate-500 font-normal">Variation: {(item as any).variantName}</div>
+                    )}
+                  </td>
+                )}
                 {lineItems.itemQuantity.show && <td className="py-3 text-sm text-slate-700 text-center">{item.qty}</td>}
                 {lineItems.itemUnitPrice.show && <td className="py-3 text-sm text-slate-700 text-right">{(item.unitPrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>}
                 {lineItems.itemTaxAmount.show && <td className="py-3 text-sm text-slate-700 text-right">{(item.taxAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>}

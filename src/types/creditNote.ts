@@ -2,6 +2,8 @@ export interface CreditNoteItemRow {
   id: string;
   itemDescription: string;
   productId?: string;
+  variantId?: string;
+  variantName?: string;
   batchNumber: string;
   batchExpiryDate: string;
   uom: string;
@@ -14,6 +16,7 @@ export interface CreditNoteItemRow {
   taxAmount: number;
   netAmount: number;
 }
+
 
 export interface CreditNoteRefundRecord {
   id: string;

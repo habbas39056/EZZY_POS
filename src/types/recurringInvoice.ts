@@ -2,6 +2,8 @@ export interface RecurringInvoiceItemRow {
   id: string;
   itemDescription: string;
   productId?: string;
+  variantId?: string;
+  variantName?: string;
   batchNumber: string;
   batchExpiryDate: string;
   uom: string;
@@ -14,6 +16,7 @@ export interface RecurringInvoiceItemRow {
   taxAmount: number;
   netAmount: number;
 }
+
 
 export interface RecurringInvoice {
   id: string;

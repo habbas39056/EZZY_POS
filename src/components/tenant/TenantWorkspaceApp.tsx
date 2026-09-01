@@ -28,12 +28,14 @@ import {
   Globe,
   Layers,
   MapPin,
+  SlidersHorizontal,
   FolderKanban,
   Search,
   Building,
   User,
   X
 } from 'lucide-react';
+
 import { useSuperAdmin } from '../../context/SuperAdminContext';
 import type { Tenant } from '../../types';
 import type { Invoice } from '../../types/sales';
@@ -288,6 +290,7 @@ export const TenantWorkspaceApp: React.FC<TenantWorkspaceAppProps> = ({ tenant }
                       { id: 'catalog-locations', label: 'Locations', icon: MapPin },
                       { id: 'catalog-product', label: 'Product', icon: Package },
                     ].map(sub => {
+
                       const IconComp = sub.icon;
                       const isActive = activeMenu === sub.id;
                       return (
@@ -1128,12 +1131,14 @@ export const TenantWorkspaceApp: React.FC<TenantWorkspaceAppProps> = ({ tenant }
                   activeMenu === 'catalog-mfg' ? 'manufacturer' :
                   activeMenu === 'catalog-region' ? 'region' :
                   activeMenu === 'catalog-category' ? 'category' :
+                  activeMenu === 'catalog-variation' ? 'variation' :
                   activeMenu === 'catalog-locations' ? 'location' :
                   activeMenu === 'catalog-product' ? 'product' :
                   'department'
                 }
                 onNavigateToProduct={() => setActiveMenu('catalog-product')}
               />
+
             ) : activeMenu.startsWith('exp-') ? (
               <ExpensesManagerView
                 key={activeMenu}

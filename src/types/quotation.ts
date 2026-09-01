@@ -2,6 +2,8 @@ export interface QuotationItemRow {
   id: string;
   item: string;
   productId?: string;
+  variantId?: string;
+  variantName?: string;
   unit: string;
   qtyOrdered: number;
   unitPrice: number;
@@ -11,6 +13,7 @@ export interface QuotationItemRow {
   taxAmount: number;
   netAmount: number;
 }
+
 
 export interface Quotation {
   id: string;

@@ -128,10 +128,23 @@ export const NewRecurringInvoiceView: React.FC<NewRecurringInvoiceViewProps> = (
     return saved ? JSON.parse(saved) : INITIAL_UOM;
   });
 
-  const [products] = useState<Product[]>(() => {
+  const [products, setProducts] = useState<Product[]>(() => {
     const saved = localStorage.getItem('adwiselabs_catalog_products');
     return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
   });
+
+  useEffect(() => {
+    const loadProducts = async () => {
+      try {
+        const remote = await api.getProducts();
+        if (remote && Array.isArray(remote) && remote.length > 0) {
+          setProducts(remote);
+          localStorage.setItem('adwiselabs_catalog_products', JSON.stringify(remote));
+        }
+      } catch (e) {}
+    };
+    loadProducts();
+  }, []);
 
   const getTodayFormatted = () => {
     const now = new Date();
@@ -165,23 +178,27 @@ export const NewRecurringInvoiceView: React.FC<NewRecurringInvoiceViewProps> = (
         id: `rec_item_${Date.now()}_${it.id}`,
         itemDescription: it.itemDescription,
         productId: it.productId,
+        variantId: it.variantId || '',
+        variantName: it.variantName || '',
         batchNumber: it.batchNumber || '',
         batchExpiryDate: it.batchExpiryDate || '',
         uom: it.uom || 'Pcs',
-        qty: it.qty || 1,
-        unitPrice: it.unitPrice || 0,
+        qty: Number(it.qty) > 0 ? Number(it.qty) : 1,
+        unitPrice: Number(it.unitPrice) || 0,
         location: it.location || '',
-        discount: it.discount || 0,
+        discount: Number(it.discount) || 0,
         account: it.account || 'Sales Revenue (General)',
-        taxRatePercent: it.taxRatePercent || 0,
-        taxAmount: it.taxAmount || 0,
-        netAmount: it.netAmount || 0
+        taxRatePercent: Number(it.taxRatePercent) || 0,
+        taxAmount: Number(it.taxAmount) || 0,
+        netAmount: Number(it.netAmount) || 0
       }));
     }
     return [
       {
         id: 'row_1',
         itemDescription: '',
+        variantId: '',
+        variantName: '',
         batchNumber: '',
         batchExpiryDate: '',
         uom: 'Pcs',
@@ -189,7 +206,7 @@ export const NewRecurringInvoiceView: React.FC<NewRecurringInvoiceViewProps> = (
         unitPrice: 0,
         location: '',
         discount: 0,
-        account: 'Sales Revenue (General)',
+        account: '',
         taxRatePercent: 0,
         taxAmount: 0,
         netAmount: 0
@@ -197,10 +214,12 @@ export const NewRecurringInvoiceView: React.FC<NewRecurringInvoiceViewProps> = (
       {
         id: 'row_2',
         itemDescription: '',
+        variantId: '',
+        variantName: '',
         batchNumber: '',
         batchExpiryDate: '',
         uom: '',
-        qty: 0,
+        qty: 1,
         unitPrice: 0,
         location: '',
         discount: 0,
@@ -216,18 +235,87 @@ export const NewRecurringInvoiceView: React.FC<NewRecurringInvoiceViewProps> = (
     const updated = [...items];
     const item = { ...updated[index], [field]: value };
 
-    // Auto-fill from Product selection
+    // Auto-fill from Product or Variant selection
     if (field === 'itemDescription') {
-      const matched = products.find(p => p.name === value || p.code === value);
-      if (matched) {
-        item.productId = matched.id;
-        item.unitPrice = matched.salePrice || matched.purchasePrice || 0;
-        item.location = matched.location || '';
-        item.uom = matched.unitOfMeasure || 'Pcs';
+      const cleanVal = String(value).trim().toLowerCase();
+      let matchedProd = products.find(p => p.name.toLowerCase().trim() === cleanVal || p.code.toLowerCase().trim() === cleanVal || p.id === String(value));
+      let matchedVariant = null;
+
+      if (!matchedProd) {
+        for (const p of products) {
+          if (p.variants && p.variants.length > 0) {
+            const v = p.variants.find(v => 
+              `${p.name} (${v.name})`.toLowerCase().trim() === cleanVal || 
+              (v.sku && v.sku.toLowerCase().trim() === cleanVal) || 
+              v.name.toLowerCase().trim() === cleanVal
+            );
+            if (v) {
+              matchedProd = p;
+              matchedVariant = v;
+              break;
+            }
+          }
+        }
+      }
+
+      if (matchedProd) {
+        item.productId = matchedProd.id;
+        item.location = matchedProd.location || '';
+        item.uom = matchedProd.unitOfMeasure || 'Pcs';
+        if (!item.qty || Number(item.qty) <= 0) {
+          item.qty = 1;
+        }
+
+        if (matchedVariant) {
+          item.variantId = matchedVariant.id;
+          item.variantName = matchedVariant.name;
+          item.unitPrice = Number(matchedVariant.salePrice) || 0;
+        } else if (matchedProd.variants && matchedProd.variants.length > 0) {
+          const firstVar = matchedProd.variants[0];
+          item.variantId = firstVar.id;
+          item.variantName = firstVar.name;
+          item.unitPrice = Number(firstVar.salePrice) || 0;
+        } else {
+          item.variantId = '';
+          item.variantName = '';
+          item.unitPrice = Number(matchedProd.salePrice || matchedProd.purchasePrice) || 0;
+        }
+      } else {
+        item.productId = '';
+        item.variantId = '';
+        item.variantName = '';
       }
     }
 
-    const qty = Number(item.qty) || 0;
+    if (field === 'variantId') {
+      const cleanDesc = (item.itemDescription || '').trim().toLowerCase();
+      const parentProd = products.find(p => p.id === item.productId || p.name.toLowerCase().trim() === cleanDesc || p.code.toLowerCase().trim() === cleanDesc);
+      if (parentProd && parentProd.variants) {
+        const v = parentProd.variants.find(varItem => varItem.id === value || varItem.name.toLowerCase().trim() === String(value).toLowerCase().trim());
+        if (v) {
+          if (!item.qty || Number(item.qty) <= 0) {
+            item.qty = 1;
+          }
+          item.variantId = v.id;
+          item.variantName = v.name;
+          item.unitPrice = Number(v.salePrice) || 0;
+        } else {
+          item.variantId = '';
+          item.variantName = '';
+          item.unitPrice = Number(parentProd.salePrice) || 0;
+        }
+      }
+    }
+
+    if (field === 'variantName') {
+      item.variantName = String(value);
+      if (!item.variantId) {
+        item.variantId = `var_custom_${Date.now()}`;
+      }
+    }
+
+
+    const qty = Number(item.qty) > 0 ? Number(item.qty) : (item.itemDescription || Number(item.unitPrice) > 0 ? 1 : 0);
     const price = Number(item.unitPrice) || 0;
     const itemDisc = Number(item.discount) || 0;
     const taxRate = Number(item.taxRatePercent) || 0;
@@ -249,16 +337,19 @@ export const NewRecurringInvoiceView: React.FC<NewRecurringInvoiceViewProps> = (
     setItems(updated);
   };
 
+
   const handleAddRow = () => {
     setItems([
       ...items,
       {
         id: `row_${Date.now()}`,
         itemDescription: '',
+        variantId: '',
+        variantName: '',
         batchNumber: '',
         batchExpiryDate: '',
-        uom: '',
-        qty: 0,
+        uom: 'Pcs',
+        qty: 1,
         unitPrice: 0,
         location: '',
         discount: 0,
@@ -275,7 +366,12 @@ export const NewRecurringInvoiceView: React.FC<NewRecurringInvoiceViewProps> = (
     setItems(items.filter((_, i) => i !== index));
   };
 
-  const subtotal = items.reduce((acc, it) => acc + ((Number(it.qty) || 0) * (Number(it.unitPrice) || 0) - (Number(it.discount) || 0)), 0);
+  const subtotal = items.reduce((acc, it) => {
+    const q = Number(it.qty) > 0 ? Number(it.qty) : ((it.itemDescription || Number(it.unitPrice) > 0) ? 1 : 0);
+    const p = Number(it.unitPrice) || 0;
+    const d = Number(it.discount) || 0;
+    return acc + Math.max(0, (q * p) - d);
+  }, 0);
   const totalItemTax = items.reduce((acc, it) => acc + (Number(it.taxAmount) || 0), 0);
   const addTaxAmt = (subtotal * additionalTaxPercent) / 100;
   const totalTax = totalItemTax + addTaxAmt;
@@ -283,32 +379,63 @@ export const NewRecurringInvoiceView: React.FC<NewRecurringInvoiceViewProps> = (
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customerId) {
-      alert('Please select a Customer.');
-      return;
-    }
+    let finalCustId = customerId;
+    let finalCustName = 'Walk-in Customer';
 
     const customerObj = contacts.find(c => c.id === customerId);
+    if (customerObj) {
+      finalCustName = customerObj.name;
+    } else if (customerId && customerId.trim()) {
+      finalCustName = customerId.trim();
+    } else if (contacts.length > 0) {
+      finalCustId = contacts[0].id;
+      finalCustName = contacts[0].name;
+    }
+
+    if (!finalCustId) {
+      finalCustId = `cnt_${Date.now()}`;
+    }
+
+    const validItems = items.filter(it => (it.itemDescription && it.itemDescription.trim()) || Number(it.unitPrice) > 0);
+    const normalizedItems = validItems.map(it => {
+      const q = Number(it.qty) > 0 ? Number(it.qty) : 1;
+      const p = Number(it.unitPrice) || 0;
+      const d = Number(it.discount) || 0;
+      const sub = Math.max(0, (q * p) - d);
+      return {
+        ...it,
+        qty: q,
+        unitPrice: p,
+        netAmount: Number(it.netAmount) > 0 ? Number(it.netAmount) : sub
+      };
+    });
+
+    const computedSubtotal = normalizedItems.reduce((acc, it) => acc + (it.qty * it.unitPrice - (Number(it.discount) || 0)), 0);
+    const computedItemTax = normalizedItems.reduce((acc, it) => acc + (Number(it.taxAmount) || 0), 0);
+    const computedAddTax = (computedSubtotal * additionalTaxPercent) / 100;
+    const computedTotalTax = computedItemTax + computedAddTax;
+    const computedGrossTotal = Math.max(0, computedSubtotal + (isTaxInclusive ? 0 : computedTotalTax));
+
     const newRec: RecurringInvoice = {
       id: `rec_inv_${Date.now()}`,
-      customerId,
-      customerName: customerObj ? customerObj.name : 'Unknown Customer',
-      salesPerson,
-      region,
+      customerId: finalCustId,
+      customerName: finalCustName,
+      salesPerson: salesPerson || 'Muhammad Tariq Khan',
+      region: region || 'Karachi (HQ)',
       repeatFrequency,
       repeatUnit,
-      startDate,
+      startDate: startDate || getTodayFormatted(),
       dueDateRule,
       endDate,
       creationType,
       discountType,
-      items: items.filter(it => it.itemDescription.trim() || it.qty > 0),
+      items: normalizedItems.length > 0 ? normalizedItems : items,
       specialInstructions,
       isTaxInclusive,
-      subtotal,
+      subtotal: computedGrossTotal > 0 ? computedSubtotal : subtotal,
       additionalTaxRate: additionalTaxPercent,
-      totalTax,
-      grossTotal,
+      totalTax: computedGrossTotal > 0 ? computedTotalTax : totalTax,
+      grossTotal: computedGrossTotal > 0 ? computedGrossTotal : grossTotal,
       status: 'Active',
       createdAt: new Date().toISOString()
     };
@@ -540,13 +667,14 @@ export const NewRecurringInvoiceView: React.FC<NewRecurringInvoiceViewProps> = (
             </div>
           </div>
 
-          {/* 13-Column Items Table */}
+          {/* 14-Column Items Table with Variation Support */}
           <div className="overflow-x-auto border border-slate-200 rounded-lg">
             <table className="w-full text-left text-xs">
               <thead className="bg-[#f8fafc] border-b border-slate-200 text-slate-600 font-bold text-[10.5px]">
                 <tr>
                   <th className="px-2 py-2 w-8 text-center">#</th>
                   <th className="px-2.5 py-2 min-w-[150px]">Item / Description</th>
+                  <th className="px-2 py-2 min-w-[140px]">Variation</th>
                   <th className="px-2 py-2 w-24 text-center">Batch Number</th>
                   <th className="px-2 py-2 w-28 text-center">Batch Expiry Date</th>
                   <th className="px-2 py-2 w-24">UOM</th>
@@ -582,6 +710,63 @@ export const NewRecurringInvoiceView: React.FC<NewRecurringInvoiceViewProps> = (
                         ))}
                       </datalist>
                     </td>
+
+                    {/* Dedicated Product Variation Dropdown / Input */}
+                    <td className="p-1">
+                      {(() => {
+                        const cleanDesc = (row.itemDescription || '').trim().toLowerCase();
+                        const selectedProd = products.find(p => 
+                          (row.productId && p.id === row.productId) || 
+                          (cleanDesc && p.name.toLowerCase().trim() === cleanDesc) ||
+                          (cleanDesc && p.code.toLowerCase().trim() === cleanDesc)
+                        );
+                        const hasVars = selectedProd && selectedProd.variants && selectedProd.variants.length > 0;
+
+                        if (hasVars && selectedProd?.variants) {
+                          return (
+                            <select
+                              value={row.variantId || ''}
+                              onChange={(e) => handleItemChange(idx, 'variantId', e.target.value)}
+                              className="w-full px-2 py-1 border border-sky-400 bg-sky-50 text-[#0070ba] font-bold rounded text-xs focus:border-[#0070ba] focus:bg-white transition cursor-pointer"
+                            >
+                              <option value="">Select Variation ({selectedProd.variants.length})</option>
+                              {selectedProd.variants.map(v => (
+                                <option key={v.id} value={v.id}>
+                                  {v.name} — Rs {Number(v.salePrice || 0).toLocaleString()}
+                                </option>
+                              ))}
+                            </select>
+                          );
+                        }
+
+                        if (row.variantName) {
+                          return (
+                            <input
+                              type="text"
+                              placeholder="Variant Name"
+                              value={row.variantName}
+                              onChange={(e) => handleItemChange(idx, 'variantName', e.target.value)}
+                              className="w-full px-2 py-1 border border-sky-300 bg-white rounded text-xs font-medium text-slate-800 focus:border-[#0070ba]"
+                            />
+                          );
+                        }
+
+                        return (
+                          <div className="flex items-center justify-center">
+                            <button
+                              type="button"
+                              onClick={() => handleItemChange(idx, 'variantName', 'Standard')}
+                              className="text-[11px] text-slate-400 hover:text-[#0070ba] hover:underline font-mono cursor-pointer"
+                              title="Click to specify variation"
+                            >
+                              — (+ Var)
+                            </button>
+                          </div>
+                        );
+                      })()}
+                    </td>
+
+
 
                     <td className="p-1">
                       <input

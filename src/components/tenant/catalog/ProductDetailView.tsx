@@ -15,14 +15,19 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronsRight,
-  QrCode
+  QrCode,
+  SlidersHorizontal,
+  Trash2,
+  Sparkles,
+  Layers
 } from 'lucide-react';
 import type { 
   Product, 
   Category, 
   Location, 
   Manufacturer, 
-  StockAdjustment 
+  StockAdjustment,
+  ProductVariant
 } from '../../../types/catalog';
 import { DatePicker } from '../../common/DatePicker';
 import { ProductQRLabelModal } from './ProductQRLabelModal';
@@ -110,10 +115,61 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   const [canSaleOrPurchase, setCanSaleOrPurchase] = useState(true);
   const [isActive, setIsActive] = useState(product.isActive ?? true);
 
-  // New Fields
+  // New Fields & Variations
   const [openingStock, setOpeningStock] = useState<number | ''>(product.openingStock ?? '');
   const [warrantyDetails, setWarrantyDetails] = useState(product.warrantyDetails || '');
   const [variationOptions, setVariationOptions] = useState(product.variationOptions?.join(', ') || '');
+  const [hasVariants, setHasVariants] = useState<boolean>(product.hasVariants ?? (Boolean(product.variants && product.variants.length > 0)));
+  const [variants, setVariants] = useState<ProductVariant[]>(product.variants || []);
+
+  // Variant helper functions
+  const handleAddVariantRow = (customName = '') => {
+    const baseCode = code.trim() || product.code || 'VAR';
+    const newVariant: ProductVariant = {
+      id: `v_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      name: customName || `Variant ${variants.length + 1}`,
+      sku: `${baseCode}-${variants.length + 1}`,
+      purchasePrice: purchasePrice === '' ? 0 : Number(purchasePrice),
+      salePrice: salePrice === '' ? 0 : Number(salePrice),
+      stock: openingStock === '' ? 0 : Number(openingStock)
+    };
+    setVariants(prev => [...prev, newVariant]);
+  };
+
+  const handleUpdateVariant = (index: number, field: keyof ProductVariant, value: any) => {
+    setVariants(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+
+  const handleRemoveVariant = (index: number) => {
+    setVariants(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleGenerateVariantsFromOptions = (optionsStr: string) => {
+    const list = optionsStr.split(',').map(s => s.trim()).filter(Boolean);
+    if (list.length === 0) return;
+
+    const baseCode = code.trim() || product.code || 'VAR';
+    const generated: ProductVariant[] = list.map((opt, idx) => {
+      const existing = variants.find(v => v.name.toLowerCase() === opt.toLowerCase());
+      if (existing) return existing;
+
+      return {
+        id: `v_${Date.now()}_${idx}`,
+        name: opt,
+        sku: `${baseCode}-${opt.replace(/[^a-zA-Z0-9]/g, '').substring(0, 8).toUpperCase()}`,
+        purchasePrice: purchasePrice === '' ? 0 : Number(purchasePrice),
+        salePrice: salePrice === '' ? 0 : Number(salePrice),
+        stock: openingStock === '' ? 0 : Number(openingStock)
+      };
+    });
+
+    setVariants(generated);
+    setHasVariants(true);
+  };
 
   // Stock Adjustment Modal & QR Label Modal
   const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
@@ -122,6 +178,11 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   const [adjQty, setAdjQty] = useState<number | ''>('');
   const [adjUnitPrice, setAdjUnitPrice] = useState<number | ''>(product.purchasePrice ?? 0);
   const [adjAccount, setAdjAccount] = useState<string>('20001 - Retained Earnings');
+  const [adjSelectedVariantId, setAdjSelectedVariantId] = useState<string>('');
+  const [newVarName, setNewVarName] = useState<string>('');
+  const [newVarSku, setNewVarSku] = useState<string>('');
+  const [newVarSalePrice, setNewVarSalePrice] = useState<number | ''>('');
+  const [newVarPurchasePrice, setNewVarPurchasePrice] = useState<number | ''>('');
   
   const getTodayFormatted = () => {
     const now = new Date();
@@ -171,17 +232,33 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       return;
     }
 
+    const varList = variationOptions.split(',').map(v => v.trim()).filter(Boolean);
+    const validVariants = hasVariants ? variants.filter(v => v.name.trim()) : [];
+    
+    let effSalePrice = salePrice === '' ? 0 : Number(salePrice);
+    let effPurchasePrice = purchasePrice === '' ? 0 : Number(purchasePrice);
+    let effStock = openingStock === '' ? 0 : Number(openingStock);
+
+    if (hasVariants && validVariants.length > 0) {
+      if (effSalePrice === 0) effSalePrice = validVariants[0].salePrice;
+      if (effPurchasePrice === 0) effPurchasePrice = validVariants[0].purchasePrice;
+      effStock = validVariants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+    }
+
     const updated: Product = {
       ...product,
       name: name.trim(),
       code: code.trim(),
       categoryName: categoryName || 'General',
       location: location || 'Warehouse Main',
-      purchasePrice: purchasePrice === '' ? 0 : Number(purchasePrice),
-      salePrice: salePrice === '' ? 0 : Number(salePrice),
-      openingStock: openingStock === '' ? 0 : Number(openingStock),
+      purchasePrice: effPurchasePrice,
+      salePrice: effSalePrice,
+      stock: effStock,
+      openingStock: effStock,
       warrantyDetails,
-      variationOptions: variationOptions.split(',').map(v => v.trim()).filter(Boolean),
+      variationOptions: varList,
+      hasVariants: hasVariants && validVariants.length > 0,
+      variants: hasVariants && validVariants.length > 0 ? validVariants : undefined,
       trackStock,
       isActive,
       description: description.trim(),
@@ -201,12 +278,68 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     }
 
     const priceNumber = Number(adjUnitPrice) || 0;
-    const newStock = adjType === 'Increase'
-      ? product.stock + qtyNumber
-      : Math.max(0, product.stock - qtyNumber);
+    const totalVal = qtyNumber * priceNumber;
 
-    const updatedProduct = { ...product, stock: newStock };
-    onUpdate(updatedProduct);
+    let updatedProd: Product;
+    let historyNote = adjNote;
+
+    if (adjSelectedVariantId === 'new') {
+      if (!newVarName.trim()) {
+        alert('Please enter a Variation Name.');
+        return;
+      }
+      const newVariant: ProductVariant = {
+        id: `var_${Date.now()}`,
+        name: newVarName.trim(),
+        sku: newVarSku.trim() || `${product.code || 'PRD'}-${Math.floor(1000 + Math.random() * 9000)}`,
+        purchasePrice: priceNumber > 0 ? priceNumber : (Number(newVarPurchasePrice) || product.purchasePrice || 0),
+        salePrice: Number(newVarSalePrice) || product.salePrice || 0,
+        stock: qtyNumber
+      };
+      const existingVariants = product.variants || [];
+      const updatedVariants = [...existingVariants, newVariant];
+      const totalStock = updatedVariants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+
+      updatedProd = {
+        ...product,
+        hasVariants: true,
+        variants: updatedVariants,
+        stock: totalStock
+      };
+      historyNote = adjNote || `Created New Variation "${newVarName.trim()}" with initial stock of ${qtyNumber} units`;
+    } else if (adjSelectedVariantId && product.variants && product.variants.length > 0) {
+      const targetVariant = product.variants.find(v => v.id === adjSelectedVariantId);
+      const updatedVariants = product.variants.map(v => {
+        if (v.id === adjSelectedVariantId) {
+          const currStock = Number(v.stock) || 0;
+          const newStock = adjType === 'Increase' ? currStock + qtyNumber : Math.max(0, currStock - qtyNumber);
+          return { ...v, stock: newStock, purchasePrice: priceNumber > 0 ? priceNumber : v.purchasePrice };
+        }
+        return v;
+      });
+      const totalStock = updatedVariants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+
+      updatedProd = {
+        ...product,
+        hasVariants: true,
+        variants: updatedVariants,
+        stock: totalStock
+      };
+      historyNote = adjNote || `Stock Adjustment (${adjType}) on Variation "${targetVariant?.name || adjSelectedVariantId}"`;
+    } else {
+      const newStock = adjType === 'Increase'
+        ? product.stock + qtyNumber
+        : Math.max(0, product.stock - qtyNumber);
+
+      updatedProd = {
+        ...product,
+        stock: newStock,
+        purchasePrice: priceNumber > 0 ? priceNumber : product.purchasePrice
+      };
+      historyNote = adjNote || (adjType === 'Increase' ? 'Stock Adjustment (Increase)' : 'Stock Adjustment (Decrease)');
+    }
+
+    onUpdate(updatedProd);
 
     const newRecord: StockAdjustment = {
       id: `adj_${Date.now()}`,
@@ -216,16 +349,17 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       date: adjDate || getTodayFormatted(),
       quantity: adjType === 'Increase' ? qtyNumber : -qtyNumber,
       unitPrice: priceNumber,
-      totalValue: qtyNumber * priceNumber,
+      totalValue: totalVal,
       accountHead: adjAccount,
-      notes: adjNote || `Stock Adjustment (${adjType})`,
+      notes: historyNote,
       createdOn: getTodayFormatted()
     };
 
     saveAdjustments([newRecord, ...stockAdjustments]);
-    alert(`Stock for ${product.name} updated to ${newStock} units!`);
+    alert(`Stock adjusted successfully! Total product stock is now ${updatedProd.stock} units.`);
     setShowAdjustmentModal(false);
   };
+
 
   const filteredHistory = stockAdjustments.filter(adj => {
     const matchesProduct = adj.productId === product.id || adj.productName.toLowerCase() === product.name.toLowerCase();
@@ -506,18 +640,260 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-3.5 mb-5">
-              <div>
-                <label className="block text-slate-600 font-medium mb-1">Variations (comma separated)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Size: M, Size: L, Color: Red"
-                  value={variationOptions}
-                  onChange={(e) => setVariationOptions(e.target.value)}
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded focus:outline-none focus:border-[#0070ba] text-xs text-slate-800"
-                />
+            {/* ======================================================== */}
+            {/* VARIATIONS & INDIVIDUAL PRICING MATRIX SECTION           */}
+            {/* ======================================================== */}
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3.5 mb-5 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded bg-[#0070ba]/10 text-[#0070ba] flex items-center justify-center font-bold">
+                    <SlidersHorizontal className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-800">Product Variations & Pricing</h3>
+                    <p className="text-[10.5px] text-slate-500">Configure different options (e.g. Size, Color, Storage) with distinct selling prices</p>
+                  </div>
+                </div>
+
+                <label className="inline-flex items-center gap-2 cursor-pointer bg-white px-2.5 py-1 rounded-md border border-slate-200 shadow-2xs hover:bg-slate-50 transition">
+                  <input
+                    type="checkbox"
+                    checked={hasVariants}
+                    onChange={(e) => {
+                      const val = e.target.checked;
+                      setHasVariants(val);
+                      if (val && variants.length === 0 && variationOptions.trim()) {
+                        handleGenerateVariantsFromOptions(variationOptions);
+                      } else if (val && variants.length === 0) {
+                        handleAddVariantRow();
+                      }
+                    }}
+                    className="w-3.5 h-3.5 text-[#0070ba] rounded focus:ring-0 cursor-pointer"
+                  />
+                  <span className="text-[11px] font-semibold text-slate-700">Different price per variation</span>
+                </label>
               </div>
+              
+              {/* Quick insert from saved variations */}
+              {(() => {
+                try {
+                  const saved = localStorage.getItem('adwiselabs_catalog_variations');
+                  const savedVars: Array<{ name: string; values: string[] }> = saved ? JSON.parse(saved) : [];
+                  if (savedVars.length === 0) return null;
+                  return (
+                    <div className="space-y-1.5 bg-white border border-slate-200 rounded-md p-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Quick Add From Catalog Variations:</span>
+                        <span className="text-[10px] text-slate-400">Click to toggle values</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {savedVars.map(v => (
+                          <div key={v.name} className="bg-slate-50 border border-slate-200 rounded-md p-1.5 flex flex-wrap items-center gap-1">
+                            <span className="text-[10.5px] font-bold text-[#0070ba] mr-1">{v.name}:</span>
+                            {v.values.map(val => {
+                              const tag = `${v.name}: ${val}`;
+                              const currentList = variationOptions.split(',').map(s => s.trim()).filter(Boolean);
+                              const isSelected = currentList.includes(tag);
+                              return (
+                                <button
+                                  key={val}
+                                  type="button"
+                                  onClick={() => {
+                                    let nextList: string[];
+                                    if (isSelected) {
+                                      nextList = currentList.filter(s => s !== tag);
+                                    } else {
+                                      nextList = [...currentList, tag];
+                                    }
+                                    const nextStr = nextList.join(', ');
+                                    setVariationOptions(nextStr);
+                                    if (hasVariants) {
+                                      handleGenerateVariantsFromOptions(nextStr);
+                                    }
+                                  }}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition cursor-pointer ${
+                                    isSelected 
+                                      ? 'bg-[#0070ba] text-white border-[#0070ba]' 
+                                      : 'bg-white hover:bg-sky-50 text-slate-700 border-slate-200'
+                                  }`}
+                                >
+                                  {val}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                } catch {
+                  return null;
+                }
+              })()}
+
+              <div>
+                <label className="block text-slate-600 font-medium mb-1 text-[11px]">Variation Tags (comma separated)</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="e.g. Size: Small, Size: Medium, Size: Large or 128GB, 256GB"
+                    value={variationOptions}
+                    onChange={(e) => {
+                      setVariationOptions(e.target.value);
+                      if (hasVariants && e.target.value.trim()) {
+                        handleGenerateVariantsFromOptions(e.target.value);
+                      }
+                    }}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded focus:outline-none focus:border-[#0070ba] text-xs text-slate-800 bg-white"
+                  />
+                  {variationOptions.trim() && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleGenerateVariantsFromOptions(variationOptions);
+                      }}
+                      className="px-3 py-1 bg-sky-50 hover:bg-sky-100 text-[#0070ba] border border-sky-200 rounded font-semibold text-[11px] shrink-0 flex items-center gap-1 cursor-pointer"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" /> Auto-Generate Matrix
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* ======================================================== */}
+              {/* 📊 VARIANT PRICING & STOCK MATRIX TABLE                  */}
+              {/* ======================================================== */}
+              {hasVariants && (
+                <div className="mt-3 border border-sky-200 rounded-lg bg-white overflow-hidden shadow-xs">
+                  <div className="px-3 py-2 bg-sky-50/80 border-b border-sky-100 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Layers className="w-3.5 h-3.5 text-[#0070ba]" />
+                      <span className="text-xs font-bold text-slate-800">Variation Pricing & Stock Breakdown</span>
+                      <span className="px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 font-bold text-[10px]">
+                        {variants.length} Variant{variants.length === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleAddVariantRow()}
+                      className="px-2.5 py-1 bg-[#0070ba] hover:bg-[#005a96] text-white rounded text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer"
+                    >
+                      <Plus className="w-3 h-3" /> Add Variant Row
+                    </button>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold text-[10.5px]">
+                        <tr>
+                          <th className="px-3 py-2 w-1/4">Variation Name / Option *</th>
+                          <th className="px-3 py-2 w-1/5">SKU / Barcode</th>
+                          <th className="px-3 py-2 w-1/6">Purchase Cost ({currencySymbol})</th>
+                          <th className="px-3 py-2 w-1/6">Sale Price ({currencySymbol}) *</th>
+                          <th className="px-3 py-2 w-20">Stock Qty</th>
+                          <th className="px-3 py-2 text-center w-12">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-xs">
+                        {variants.map((v, idx) => (
+                          <tr key={v.id || idx} className="hover:bg-slate-50/60 transition">
+                            <td className="px-3 py-1.5">
+                              <input
+                                type="text"
+                                required
+                                placeholder="e.g. Size: Medium or 256GB"
+                                value={v.name}
+                                onChange={(e) => handleUpdateVariant(idx, 'name', e.target.value)}
+                                className="w-full px-2 py-1 border border-slate-200 rounded focus:border-[#0070ba] focus:outline-none text-xs font-semibold text-slate-800"
+                              />
+                            </td>
+                            <td className="px-3 py-1.5">
+                              <input
+                                type="text"
+                                placeholder="SKU-001"
+                                value={v.sku || ''}
+                                onChange={(e) => handleUpdateVariant(idx, 'sku', e.target.value)}
+                                className="w-full px-2 py-1 border border-slate-200 rounded focus:border-[#0070ba] focus:outline-none text-xs font-mono text-slate-700"
+                              />
+                            </td>
+                            <td className="px-3 py-1.5">
+                              <input
+                                type="number"
+                                min="0"
+                                step="any"
+                                placeholder="0.00"
+                                value={v.purchasePrice}
+                                onChange={(e) => handleUpdateVariant(idx, 'purchasePrice', Number(e.target.value) || 0)}
+                                className="w-full px-2 py-1 border border-slate-200 rounded focus:border-[#0070ba] focus:outline-none text-xs text-slate-700"
+                              />
+                            </td>
+                            <td className="px-3 py-1.5">
+                              <input
+                                type="number"
+                                min="0"
+                                step="any"
+                                required
+                                placeholder="0.00"
+                                value={v.salePrice}
+                                onChange={(e) => handleUpdateVariant(idx, 'salePrice', Number(e.target.value) || 0)}
+                                className="w-full px-2 py-1 border border-sky-300 bg-sky-50/30 rounded focus:border-[#0070ba] focus:outline-none text-xs font-bold text-slate-800"
+                              />
+                            </td>
+                            <td className="px-3 py-1.5">
+                              <input
+                                type="number"
+                                min="0"
+                                placeholder="0"
+                                value={v.stock || 0}
+                                onChange={(e) => handleUpdateVariant(idx, 'stock', Number(e.target.value) || 0)}
+                                className="w-full px-2 py-1 border border-slate-200 rounded focus:border-[#0070ba] focus:outline-none text-xs text-slate-700"
+                              />
+                            </td>
+                            <td className="px-3 py-1.5 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveVariant(idx)}
+                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                                title="Remove variant"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                        {variants.length === 0 && (
+                          <tr>
+                            <td colSpan={6} className="text-center py-4 text-slate-400">
+                              No variants added yet. Click <strong>Auto-Generate Matrix</strong> or <strong>Add Variant Row</strong>.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Summary Bar */}
+                  {variants.length > 0 && (
+                    <div className="px-3 py-2 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between text-[11px] text-slate-600 gap-2 font-medium">
+                      <div>
+                        <span>Price Range: </span>
+                        <strong className="text-slate-800 font-bold">
+                          {currencySymbol} {Math.min(...variants.map(v => v.salePrice || 0)).toLocaleString()} - {currencySymbol} {Math.max(...variants.map(v => v.salePrice || 0)).toLocaleString()}
+                        </strong>
+                      </div>
+                      <div>
+                        <span>Total Stock: </span>
+                        <strong className="text-slate-800 font-bold">
+                          {variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0)} Pcs
+                        </strong>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
+
+
 
             {/* ========================================= */}
             <div>
@@ -920,15 +1296,157 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 />
               </div>
 
+              {/* Variation Selection & Creation */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-slate-500 font-medium">
+                    Variation / Stock Target
+                  </label>
+                  {adjSelectedVariantId !== 'new' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAdjSelectedVariantId('new');
+                        setNewVarName('');
+                        setNewVarSku(`${product.code || 'PRD'}-VAR${(product.variants?.length || 0) + 1}`);
+                        setNewVarSalePrice(product.salePrice || '');
+                        setNewVarPurchasePrice(adjUnitPrice || product.purchasePrice || '');
+                      }}
+                      className="text-xs font-semibold text-[#0070ba] hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      + Create New Variation
+                    </button>
+                  )}
+                </div>
+
+                <select
+                  value={adjSelectedVariantId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setAdjSelectedVariantId(val);
+                    if (val === 'new') {
+                      setNewVarName('');
+                      setNewVarSku(`${product.code || 'PRD'}-VAR${(product.variants?.length || 0) + 1}`);
+                      setNewVarSalePrice(product.salePrice || '');
+                      setNewVarPurchasePrice(adjUnitPrice || product.purchasePrice || '');
+                    } else if (val) {
+                      const v = product.variants?.find(item => item.id === val);
+                      if (v) {
+                        setAdjUnitPrice(v.purchasePrice || product.purchasePrice || 0);
+                      }
+                    } else {
+                      setAdjUnitPrice(product.purchasePrice || 0);
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-slate-300 rounded focus:outline-none focus:border-[#0070ba] text-xs bg-white text-slate-800"
+                >
+                  <option value="">Main Product Stock (Total: {product.stock} units)</option>
+                  {product.variants && product.variants.map(v => (
+                    <option key={v.id} value={v.id}>
+                      Variation: {v.name} (Current Stock: {v.stock || 0}, Sale: Rs {v.salePrice})
+                    </option>
+                  ))}
+                  <option value="new">➕ + Create New Variation for this Product</option>
+                </select>
+              </div>
+
+              {/* If "Create New Variation" is selected, render new variant inputs */}
+              {adjSelectedVariantId === 'new' && (
+                <div className="p-3.5 bg-sky-50/80 border border-sky-200 rounded-lg space-y-3">
+                  <div className="flex items-center justify-between pb-1 border-b border-sky-200">
+                    <span className="font-bold text-[#0070ba] text-xs flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5" />
+                      Create New Variation Details
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setAdjSelectedVariantId(product.hasVariants && product.variants?.length ? product.variants[0].id : '')}
+                      className="text-[11px] text-slate-500 hover:text-slate-800 underline cursor-pointer"
+                    >
+                      Cancel New Variation
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1 text-[11px]">
+                        Variation Name <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. 550W Black Frame / Red XL"
+                        value={newVarName}
+                        onChange={(e) => setNewVarName(e.target.value)}
+                        className="w-full px-2.5 py-1.5 border border-sky-300 rounded focus:outline-none focus:border-[#0070ba] text-xs bg-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1 text-[11px]">
+                        SKU / Code
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Optional SKU"
+                        value={newVarSku}
+                        onChange={(e) => setNewVarSku(e.target.value)}
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded focus:outline-none focus:border-[#0070ba] text-xs bg-white font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1 text-[11px]">
+                        Sale Price (Rs) <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="e.g. 1500"
+                        value={newVarSalePrice}
+                        onChange={(e) => setNewVarSalePrice(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="w-full px-2.5 py-1.5 border border-sky-300 rounded focus:outline-none focus:border-[#0070ba] text-xs bg-white font-mono font-bold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1 text-[11px]">
+                        Cost / Purchase Price (Rs)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="e.g. 1000"
+                        value={newVarPurchasePrice}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Number(e.target.value);
+                          setNewVarPurchasePrice(val);
+                          if (val !== '') setAdjUnitPrice(val);
+                        }}
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded focus:outline-none focus:border-[#0070ba] text-xs bg-white font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-slate-500 font-medium mb-1">Current Stock</label>
                 <input
                   type="text"
                   readOnly
-                  value={product.stock}
-                  className="w-full px-3 py-2 border border-slate-300 rounded focus:outline-none bg-white text-slate-800 text-xs"
+                  value={
+                    adjSelectedVariantId === 'new'
+                      ? '0 (New Variation)'
+                      : (() => {
+                          const targetVar = product.variants?.find(v => v.id === adjSelectedVariantId);
+                          return targetVar ? targetVar.stock || 0 : product.stock;
+                        })()
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded focus:outline-none bg-white text-slate-800 text-xs font-semibold font-mono"
                 />
               </div>
+
 
               <div>
                 <label className="block text-slate-500 font-medium mb-1.5">Stock Adjustment Type</label>

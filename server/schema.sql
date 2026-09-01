@@ -200,6 +200,19 @@ CREATE TABLE IF NOT EXISTS catalog_locations (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 13.5 Catalog Variations
+CREATE TABLE IF NOT EXISTS catalog_variations (
+  id VARCHAR(50) PRIMARY KEY,
+  tenant_id VARCHAR(50),
+  name VARCHAR(150) NOT NULL,
+  code VARCHAR(50),
+  values_list JSON,
+  description TEXT,
+  created_on VARCHAR(50),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
 -- 14. Products & Inventory
 CREATE TABLE IF NOT EXISTS products (
   id VARCHAR(50) PRIMARY KEY,
@@ -218,31 +231,41 @@ CREATE TABLE IF NOT EXISTS products (
   unit_of_measure VARCHAR(50) DEFAULT 'Pcs',
   description TEXT,
   variation_options JSON,
+  has_variants BOOLEAN DEFAULT FALSE,
+  variants JSON,
   warranty_details VARCHAR(255),
   image LONGTEXT,
   created_on VARCHAR(50),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+
 -- 15. Sales Invoices
 CREATE TABLE IF NOT EXISTS sales_invoices (
   id VARCHAR(50) PRIMARY KEY,
   tenant_id VARCHAR(50),
   invoice_number VARCHAR(100) NOT NULL,
+  serial_number VARCHAR(100),
   customer_id VARCHAR(50),
   customer_name VARCHAR(150) NOT NULL,
+  sales_person VARCHAR(150),
+  region VARCHAR(150),
   invoice_date VARCHAR(50) NOT NULL,
-  due_date VARCHAR(50) NOT NULL,
-  reference_no VARCHAR(100),
-  gross_total DECIMAL(15,2) DEFAULT 0.00,
-  tax_amount DECIMAL(15,2) DEFAULT 0.00,
+  due_date VARCHAR(50),
+  requires_delivery_challan BOOLEAN DEFAULT FALSE,
+  discount_type VARCHAR(50),
+  is_tax_inclusive BOOLEAN DEFAULT FALSE,
+  subtotal DECIMAL(15,2) DEFAULT 0.00,
   discount_amount DECIMAL(15,2) DEFAULT 0.00,
-  net_total DECIMAL(15,2) DEFAULT 0.00,
+  additional_tax_rate DECIMAL(15,2) DEFAULT 0.00,
+  tax_amount DECIMAL(15,2) DEFAULT 0.00,
+  gross_total DECIMAL(15,2) DEFAULT 0.00,
   paid_amount DECIMAL(15,2) DEFAULT 0.00,
   balance DECIMAL(15,2) DEFAULT 0.00,
-  status ENUM('Draft', 'Awaiting Approval', 'Approved', 'Paid', 'Partially Paid', 'Overdue') DEFAULT 'Draft',
+  status VARCHAR(50) DEFAULT 'Draft',
+  special_instructions TEXT,
   items JSON,
-  notes TEXT,
+  notes JSON,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -259,7 +282,7 @@ CREATE TABLE IF NOT EXISTS expense_bills (
   gross_total DECIMAL(15,2) DEFAULT 0.00,
   tax_amount DECIMAL(15,2) DEFAULT 0.00,
   balance DECIMAL(15,2) DEFAULT 0.00,
-  status ENUM('Draft', 'Awaiting Approval', 'Approved', 'Paid', 'Partially Paid', 'Overdue') DEFAULT 'Draft',
+  status VARCHAR(50) DEFAULT 'Draft',
   items JSON,
   notes TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -277,7 +300,7 @@ CREATE TABLE IF NOT EXISTS expenses (
   tax_amount DECIMAL(15,2) DEFAULT 0.00,
   gross_total DECIMAL(15,2) DEFAULT 0.00,
   is_tax_inclusive BOOLEAN DEFAULT FALSE,
-  status ENUM('Approved', 'Draft', 'Pending') DEFAULT 'Approved',
+  status VARCHAR(50) DEFAULT 'Approved',
   items JSON,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -293,7 +316,7 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
   due_date VARCHAR(50),
   special_instructions TEXT,
   total DECIMAL(15,2) DEFAULT 0.00,
-  status ENUM('Partial', 'Closed', 'Draft', 'Pending') DEFAULT 'Draft',
+  status VARCHAR(50) DEFAULT 'Draft',
   items JSON,
   notes TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -304,11 +327,22 @@ CREATE TABLE IF NOT EXISTS sales_quotations (
   id VARCHAR(50) PRIMARY KEY,
   tenant_id VARCHAR(50),
   quotation_number VARCHAR(100) NOT NULL,
+  reference_no VARCHAR(100),
+  customer_id VARCHAR(50),
   customer_name VARCHAR(150) NOT NULL,
+  sales_person VARCHAR(150),
+  region VARCHAR(150),
   date VARCHAR(50) NOT NULL,
-  expiry_date VARCHAR(50),
-  total DECIMAL(15,2) DEFAULT 0.00,
-  status ENUM('Draft', 'Sent', 'Accepted', 'Declined', 'Invoiced') DEFAULT 'Draft',
+  due_date VARCHAR(50),
+  discount_type VARCHAR(50),
+  is_tax_inclusive BOOLEAN DEFAULT FALSE,
+  subtotal DECIMAL(15,2) DEFAULT 0.00,
+  additional_tax_rate DECIMAL(15,2) DEFAULT 0.00,
+  tax_amount DECIMAL(15,2) DEFAULT 0.00,
+  gross_total DECIMAL(15,2) DEFAULT 0.00,
+  status VARCHAR(50) DEFAULT 'Draft',
+  special_instructions TEXT,
+  conversion_notes TEXT,
   items JSON,
   notes TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -319,14 +353,23 @@ CREATE TABLE IF NOT EXISTS credit_notes (
   id VARCHAR(50) PRIMARY KEY,
   tenant_id VARCHAR(50),
   credit_note_number VARCHAR(100) NOT NULL,
+  customer_id VARCHAR(50),
   customer_name VARCHAR(150) NOT NULL,
+  region VARCHAR(150),
   date VARCHAR(50) NOT NULL,
-  total DECIMAL(15,2) DEFAULT 0.00,
+  discount_type VARCHAR(50),
+  is_tax_inclusive BOOLEAN DEFAULT FALSE,
+  subtotal DECIMAL(15,2) DEFAULT 0.00,
+  tax_amount DECIMAL(15,2) DEFAULT 0.00,
+  gross_total DECIMAL(15,2) DEFAULT 0.00,
   balance DECIMAL(15,2) DEFAULT 0.00,
-  status ENUM('Draft', 'Approved', 'Refunded', 'Applied') DEFAULT 'Approved',
+  status VARCHAR(50) DEFAULT 'Approved',
+  special_instructions TEXT,
   items JSON,
+  refunds JSON,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
 
 CREATE TABLE IF NOT EXISTS debit_notes (
   id VARCHAR(50) PRIMARY KEY,

@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
-import { initDatabase, query, execute, isConnected } from './db';
+import { initDatabase, query, execute, isConnected, isDbConnected } from './db';
 import { 
   INITIAL_TENANTS, 
   INITIAL_PLANS, 
@@ -17,6 +17,7 @@ import {
   INITIAL_REGIONS, 
   INITIAL_CATEGORIES, 
   INITIAL_LOCATIONS, 
+  INITIAL_VARIATIONS,
   INITIAL_PRODUCTS, 
   INITIAL_UOM 
 } from '../src/types/catalog';
@@ -52,6 +53,7 @@ let memoryStore = {
   manufacturers: [...INITIAL_MANUFACTURERS],
   regions: [...INITIAL_REGIONS],
   categories: [...INITIAL_CATEGORIES],
+  variations: [...INITIAL_VARIATIONS],
   uom: [...INITIAL_UOM],
   locations: [...INITIAL_LOCATIONS],
   products: [...INITIAL_PRODUCTS],
@@ -68,6 +70,7 @@ let memoryStore = {
   organizationDetails: { ...INITIAL_ORG_DETAILS },
   invoiceCustomization: { ...DEFAULT_TEMPLATE_CUSTOMIZATION }
 };
+
 
 // ==========================================================
 // 1. HEALTH & SYSTEM STATUS
@@ -223,18 +226,30 @@ app.get('/api/sales/invoices', async (req, res) => {
       return res.json(rows.map((r: any) => ({
         id: r.id,
         invoiceNumber: r.invoice_number,
+        serialNumber: r.serial_number || r.reference_no,
+        referenceNumber: r.serial_number || r.reference_no,
         customerId: r.customer_id,
         customerName: r.customer_name,
+        salesPerson: r.sales_person,
+        region: r.region,
         invoiceDate: r.invoice_date,
-        dueDate: r.due_date,
-        serialNumber: r.reference_no,
-        referenceNumber: r.reference_no,
-        grossTotal: Number(r.gross_total) || 0,
+        dueDate: r.due_date || '',
+        requiresDeliveryChallan: Boolean(r.requires_delivery_challan),
+        discountType: r.discount_type || 'Discount by Amount',
+        isTaxInclusive: Boolean(r.is_tax_inclusive),
+        subtotal: Number(r.subtotal) || 0,
+        discount: Number(r.discount_amount) || 0,
+        additionalTaxRate: Number(r.additional_tax_rate) || 0,
         totalTax: Number(r.tax_amount) || 0,
         taxTotal: Number(r.tax_amount) || 0,
+        grossTotal: Number(r.gross_total) || 0,
+        paidAmount: Number(r.paid_amount) || 0,
         balance: Number(r.balance) || 0,
-        status: r.status,
-        items: typeof r.items === 'string' ? JSON.parse(r.items) : (r.items || [])
+        status: r.status || 'Draft',
+        specialInstructions: r.special_instructions || '',
+        items: typeof r.items === 'string' ? JSON.parse(r.items) : (r.items || []),
+        notes: typeof r.notes === 'string' ? JSON.parse(r.notes) : (r.notes || []),
+        createdAt: r.created_at
       })));
     } catch (err: any) {
       console.error('Error fetching invoices from MySQL:', err.message);
@@ -245,18 +260,39 @@ app.get('/api/sales/invoices', async (req, res) => {
 
 app.post('/api/sales/invoices', async (req, res) => {
   const inv = req.body;
-  if (!inv.customerName || !inv.invoiceDate || !inv.dueDate) {
-    return res.status(400).json({ error: 'Missing required fields (Customer Name, Invoice Date, Due Date)' });
+  if (!inv.customerName) {
+    return res.status(400).json({ error: 'Missing required Customer Name' });
   }
   if (isConnected) {
     try {
       await execute(`
-        INSERT INTO sales_invoices (id, invoice_number, customer_id, customer_name, invoice_date, due_date, reference_no, gross_total, tax_amount, discount_amount, net_total, paid_amount, balance, status, items)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE customer_name=VALUES(customer_name), gross_total=VALUES(gross_total), discount_amount=VALUES(discount_amount), net_total=VALUES(net_total), paid_amount=VALUES(paid_amount), balance=VALUES(balance), status=VALUES(status);
+        INSERT INTO sales_invoices (
+          id, invoice_number, serial_number, customer_id, customer_name, sales_person, region,
+          invoice_date, due_date, requires_delivery_challan, discount_type, is_tax_inclusive,
+          subtotal, discount_amount, additional_tax_rate, tax_amount, gross_total, paid_amount,
+          balance, status, special_instructions, items, notes
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE 
+          invoice_number=VALUES(invoice_number), serial_number=VALUES(serial_number),
+          customer_id=VALUES(customer_id), customer_name=VALUES(customer_name),
+          sales_person=VALUES(sales_person), region=VALUES(region), invoice_date=VALUES(invoice_date),
+          due_date=VALUES(due_date), requires_delivery_challan=VALUES(requires_delivery_challan),
+          discount_type=VALUES(discount_type), is_tax_inclusive=VALUES(is_tax_inclusive),
+          subtotal=VALUES(subtotal), discount_amount=VALUES(discount_amount),
+          additional_tax_rate=VALUES(additional_tax_rate), tax_amount=VALUES(tax_amount),
+          gross_total=VALUES(gross_total), paid_amount=VALUES(paid_amount),
+          balance=VALUES(balance), status=VALUES(status), special_instructions=VALUES(special_instructions),
+          items=VALUES(items), notes=VALUES(notes);
       `, [
-        inv.id, inv.invoiceNumber, inv.customerId || '', inv.customerName, inv.invoiceDate, inv.dueDate, inv.serialNumber || inv.referenceNumber || '',
-        inv.grossTotal || 0, inv.totalTax || inv.taxTotal || 0, inv.discountAmount || inv.discount || 0, inv.netTotal || inv.grossTotal || 0, inv.paidAmount || 0, inv.balance || 0, inv.status || 'Draft', JSON.stringify(inv.items || [])
+        inv.id, inv.invoiceNumber || `INV-${Date.now()}`, inv.serialNumber || inv.referenceNumber || '', inv.customerId || '', inv.customerName,
+        inv.salesPerson || '', inv.region || '', inv.invoiceDate || new Date().toISOString().split('T')[0], inv.dueDate || '',
+        inv.requiresDeliveryChallan ? 1 : 0, inv.discountType || 'Discount by Amount',
+        inv.isTaxInclusive ? 1 : 0, inv.subtotal || 0, inv.discount || inv.discountAmount || 0,
+        inv.additionalTaxRate || 0, inv.totalTax || inv.taxTotal || inv.taxAmount || 0, inv.grossTotal || 0,
+        inv.paidAmount || 0, inv.balance !== undefined ? inv.balance : inv.grossTotal,
+        inv.status || 'Draft', inv.specialInstructions || '', JSON.stringify(inv.items || []),
+        JSON.stringify(inv.notes || [])
       ]);
       return res.status(201).json(inv);
     } catch (err: any) {
@@ -264,7 +300,9 @@ app.post('/api/sales/invoices', async (req, res) => {
       return res.status(500).json({ error: err.message });
     }
   }
-  memoryStore.salesInvoices.unshift(inv);
+  const idx = memoryStore.salesInvoices.findIndex(item => item.id === inv.id);
+  if (idx >= 0) memoryStore.salesInvoices[idx] = inv;
+  else memoryStore.salesInvoices.unshift(inv);
   res.status(201).json(inv);
 });
 
@@ -275,12 +313,13 @@ app.post('/api/sales/invoices/bulk', async (req, res) => {
     try {
       for (const inv of invoices) {
         await execute(`
-          INSERT INTO sales_invoices (id, invoice_number, customer_name, invoice_date, due_date, gross_total, status, items)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          ON DUPLICATE KEY UPDATE customer_name=VALUES(customer_name), gross_total=VALUES(gross_total), status=VALUES(status);
+          INSERT INTO sales_invoices (id, invoice_number, customer_name, invoice_date, due_date, gross_total, balance, status, items)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE customer_name=VALUES(customer_name), gross_total=VALUES(gross_total), balance=VALUES(balance), status=VALUES(status);
         `, [
-          inv.id, inv.invoiceNumber, inv.customerName, inv.invoiceDate, inv.dueDate,
-          inv.grossTotal || 0, inv.status || 'Draft', JSON.stringify(inv.items || [])
+          inv.id, inv.invoiceNumber, inv.customerName, inv.invoiceDate, inv.dueDate || '',
+          inv.grossTotal || 0, inv.balance !== undefined ? inv.balance : inv.grossTotal,
+          inv.status || 'Draft', JSON.stringify(inv.items || [])
         ]);
       }
       return res.status(201).json(invoices);
@@ -311,7 +350,6 @@ app.put('/api/sales/invoices/batch-status', async (req, res) => {
   res.json({ success: true });
 });
 
-
 app.delete('/api/sales/invoices/:id', async (req, res) => {
   const { id } = req.params;
   if (isConnected) {
@@ -336,15 +374,25 @@ app.get('/api/sales/quotations', async (req, res) => {
       return res.json(rows.map((r: any) => ({
         id: r.id,
         quotationNumber: r.quotation_number,
+        referenceNo: r.reference_no,
         customerId: r.customer_id,
         customerName: r.customer_name,
+        salesPerson: r.sales_person,
+        region: r.region,
         date: r.date,
-        dueDate: r.expiry_date,
-        referenceNo: r.reference_no,
-        grossTotal: Number(r.gross_total) || 0,
+        dueDate: r.due_date,
+        discountType: r.discount_type || 'Discount by Amount',
+        isTaxInclusive: Boolean(r.is_tax_inclusive),
+        subtotal: Number(r.subtotal) || 0,
+        additionalTaxRate: Number(r.additional_tax_rate) || 0,
         totalTax: Number(r.tax_amount) || 0,
-        status: r.status,
-        items: typeof r.items === 'string' ? JSON.parse(r.items) : (r.items || [])
+        grossTotal: Number(r.gross_total) || 0,
+        status: r.status || 'Draft',
+        specialInstructions: r.special_instructions || '',
+        conversionNotes: r.conversion_notes || '',
+        items: typeof r.items === 'string' ? JSON.parse(r.items) : (r.items || []),
+        notes: r.notes || '',
+        createdAt: r.created_at
       })));
     } catch (err: any) {
       console.error('Error fetching quotations from MySQL:', err.message);
@@ -354,24 +402,43 @@ app.get('/api/sales/quotations', async (req, res) => {
 });
 
 app.post('/api/sales/quotations', async (req, res) => {
-  const quot = req.body;
+  const q = req.body;
   if (isConnected) {
     try {
       await execute(`
-        INSERT INTO sales_quotations (id, quotation_number, customer_name, date, expiry_date, total, status, items)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE customer_name=VALUES(customer_name), total=VALUES(total), status=VALUES(status);
+        INSERT INTO sales_quotations (
+          id, quotation_number, reference_no, customer_id, customer_name, sales_person, region,
+          date, due_date, discount_type, is_tax_inclusive, subtotal, additional_tax_rate,
+          tax_amount, gross_total, status, special_instructions, conversion_notes, items, notes
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE 
+          quotation_number=VALUES(quotation_number), reference_no=VALUES(reference_no),
+          customer_id=VALUES(customer_id), customer_name=VALUES(customer_name),
+          sales_person=VALUES(sales_person), region=VALUES(region), date=VALUES(date),
+          due_date=VALUES(due_date), discount_type=VALUES(discount_type),
+          is_tax_inclusive=VALUES(is_tax_inclusive), subtotal=VALUES(subtotal),
+          additional_tax_rate=VALUES(additional_tax_rate), tax_amount=VALUES(tax_amount),
+          gross_total=VALUES(gross_total), status=VALUES(status),
+          special_instructions=VALUES(special_instructions), conversion_notes=VALUES(conversion_notes),
+          items=VALUES(items), notes=VALUES(notes);
       `, [
-        quot.id, quot.quotationNumber, quot.customerName, quot.date, quot.dueDate || '',
-        quot.grossTotal || quot.total || 0, quot.status || 'Draft', JSON.stringify(quot.items || [])
+        q.id, q.quotationNumber, q.referenceNo || '', q.customerId || '', q.customerName,
+        q.salesPerson || '', q.region || '', q.date, q.dueDate || '',
+        q.discountType || 'Discount by Amount', q.isTaxInclusive ? 1 : 0, q.subtotal || 0,
+        q.additionalTaxRate || 0, q.totalTax || 0, q.grossTotal || 0, q.status || 'Draft',
+        q.specialInstructions || '', q.conversionNotes || '', JSON.stringify(q.items || []),
+        q.notes || ''
       ]);
-      return res.status(201).json(quot);
+      return res.status(201).json(q);
     } catch (err: any) {
       console.error('Error saving quotation to MySQL:', err.message);
     }
   }
-  memoryStore.quotations.unshift(quot);
-  res.status(201).json(quot);
+  const idx = memoryStore.quotations.findIndex(item => item.id === q.id);
+  if (idx >= 0) memoryStore.quotations[idx] = q;
+  else memoryStore.quotations.unshift(q);
+  res.status(201).json(q);
 });
 
 app.delete('/api/sales/quotations/:id', async (req, res) => {
@@ -400,13 +467,19 @@ app.get('/api/sales/credit-notes', async (req, res) => {
         creditNoteNumber: r.credit_note_number,
         customerId: r.customer_id,
         customerName: r.customer_name,
+        region: r.region,
         date: r.date,
-        grossTotal: Number(r.total) || 0,
-        totalTax: 0,
+        discountType: r.discount_type || 'Discount by Amount',
+        isTaxInclusive: Boolean(r.is_tax_inclusive),
+        subtotal: Number(r.subtotal) || 0,
+        totalTax: Number(r.tax_amount) || 0,
+        grossTotal: Number(r.gross_total) || 0,
         balance: Number(r.balance) || 0,
-        status: r.status,
-        refunds: [],
-        items: typeof r.items === 'string' ? JSON.parse(r.items) : (r.items || [])
+        status: r.status || 'Approved',
+        specialInstructions: r.special_instructions || '',
+        items: typeof r.items === 'string' ? JSON.parse(r.items) : (r.items || []),
+        refunds: typeof r.refunds === 'string' ? JSON.parse(r.refunds) : (r.refunds || []),
+        createdAt: r.created_at
       })));
     } catch (err: any) {
       console.error('Error fetching credit notes from MySQL:', err.message);
@@ -420,20 +493,34 @@ app.post('/api/sales/credit-notes', async (req, res) => {
   if (isConnected) {
     try {
       await execute(`
-        INSERT INTO credit_notes (id, credit_note_number, customer_name, date, total, balance, status, items)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE customer_name=VALUES(customer_name), total=VALUES(total), balance=VALUES(balance), status=VALUES(status);
+        INSERT INTO credit_notes (
+          id, credit_note_number, customer_id, customer_name, region, date,
+          discount_type, is_tax_inclusive, subtotal, tax_amount, gross_total,
+          balance, status, special_instructions, items, refunds
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE 
+          credit_note_number=VALUES(credit_note_number), customer_id=VALUES(customer_id),
+          customer_name=VALUES(customer_name), region=VALUES(region), date=VALUES(date),
+          discount_type=VALUES(discount_type), is_tax_inclusive=VALUES(is_tax_inclusive),
+          subtotal=VALUES(subtotal), tax_amount=VALUES(tax_amount), gross_total=VALUES(gross_total),
+          balance=VALUES(balance), status=VALUES(status), special_instructions=VALUES(special_instructions),
+          items=VALUES(items), refunds=VALUES(refunds);
       `, [
-        cn.id, cn.creditNoteNumber, cn.customerName, cn.date,
-        cn.grossTotal || cn.total || 0, cn.balance || 0, cn.status || 'Refund',
-        JSON.stringify(cn.items || [])
+        cn.id, cn.creditNoteNumber, cn.customerId || '', cn.customerName, cn.region || '',
+        cn.date, cn.discountType || 'Discount by Amount', cn.isTaxInclusive ? 1 : 0,
+        cn.subtotal || 0, cn.totalTax || 0, cn.grossTotal || 0,
+        cn.balance !== undefined ? cn.balance : cn.grossTotal, cn.status || 'Approved',
+        cn.specialInstructions || '', JSON.stringify(cn.items || []), JSON.stringify(cn.refunds || [])
       ]);
       return res.status(201).json(cn);
     } catch (err: any) {
       console.error('Error saving credit note to MySQL:', err.message);
     }
   }
-  memoryStore.creditNotes.unshift(cn);
+  const idx = memoryStore.creditNotes.findIndex(item => item.id === cn.id);
+  if (idx >= 0) memoryStore.creditNotes[idx] = cn;
+  else memoryStore.creditNotes.unshift(cn);
   res.status(201).json(cn);
 });
 
@@ -450,6 +537,7 @@ app.delete('/api/sales/credit-notes/:id', async (req, res) => {
   memoryStore.creditNotes = memoryStore.creditNotes.filter((c: any) => c.id !== id);
   res.json({ success: true });
 });
+
 
 // ==========================================================
 // 7. EXPENSE BILLS
@@ -825,131 +913,8 @@ app.delete('/api/expenses/supplier-payments/:id', async (req, res) => {
 });
 
 // ==========================================================
-// 8. PRODUCTS & INVENTORY
-// ==========================================================
-app.get('/api/catalog/products', async (req, res) => {
-  if (isConnected) {
-    try {
-      const rows = await query('SELECT * FROM products ORDER BY created_at DESC');
-      return res.json(rows.map((r: any) => ({
-        id: r.id,
-        code: r.code || '',
-        name: r.name,
-        categoryName: r.category_name || '',
-        departmentName: r.department_name || '',
-        purchasePrice: Number(r.purchase_price) || 0,
-        salePrice: Number(r.sale_price) || 0,
-        stock: Number(r.stock) || 0,
-        openingStock: Number(r.opening_stock) || 0,
-        trackStock: Boolean(r.track_stock),
-        isActive: Boolean(r.is_active),
-        location: r.location || '',
-        unitOfMeasure: r.unit_of_measure || 'Pcs',
-        description: r.description || '',
-        warrantyDetails: r.warranty_details || '',
-        variationOptions: typeof r.variation_options === 'string' ? JSON.parse(r.variation_options || '[]') : (r.variation_options || []),
-        image: r.image || '',
-        createdOn: r.created_on || ''
-      })));
-    } catch (err: any) {
-      console.error('Error fetching products from MySQL:', err.message);
-    }
-  }
-  res.json(memoryStore.products);
-});
-
-app.post('/api/catalog/products', async (req, res) => {
-  const p = req.body;
-  if (!p.id) {
-    p.id = `prod_${Date.now()}`;
-  }
-  if (!p.createdOn) {
-    const now = new Date();
-    const day = String(now.getDate()).padStart(2, '0');
-    const month = now.toLocaleString('en-US', { month: 'short' });
-    const year = now.getFullYear();
-    p.createdOn = `${day}-${month}-${year}`;
-  }
-
-  if (isConnected) {
-    try {
-      await execute(`
-        INSERT INTO products (id, code, name, category_name, department_name, purchase_price, sale_price, stock, opening_stock, track_stock, is_active, location, unit_of_measure, description, created_on, variation_options, warranty_details, image)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE name=VALUES(name), category_name=VALUES(category_name), department_name=VALUES(department_name), sale_price=VALUES(sale_price), stock=VALUES(stock), opening_stock=VALUES(opening_stock), purchase_price=VALUES(purchase_price), location=VALUES(location), unit_of_measure=VALUES(unit_of_measure), description=VALUES(description), variation_options=VALUES(variation_options), warranty_details=VALUES(warranty_details), image=VALUES(image), track_stock=VALUES(track_stock), is_active=VALUES(is_active);
-      `, [
-        p.id, p.code || '', p.name, p.categoryName || '', p.departmentName || '',
-        p.purchasePrice || 0, p.salePrice || 0, p.stock || 0, p.openingStock || 0, p.trackStock ? 1 : 0,
-        p.isActive ? 1 : 0, p.location || '', p.unitOfMeasure || 'Pcs', p.description || '', p.createdOn || '',
-        JSON.stringify(p.variationOptions || []), p.warrantyDetails || '', p.image || ''
-      ]);
-      return res.status(201).json(p);
-    } catch (err: any) {
-      console.error('Error saving product to MySQL:', err.message);
-    }
-  }
-  const existingIdx = memoryStore.products.findIndex((item: any) => item.id === p.id);
-  if (existingIdx >= 0) {
-    memoryStore.products[existingIdx] = p;
-  } else {
-    memoryStore.products.unshift(p);
-  }
-  res.status(201).json(p);
-});
-
-app.post('/api/catalog/products/bulk', async (req, res) => {
-  const products = req.body; // Expecting an array
-  if (!Array.isArray(products)) return res.status(400).json({ error: 'Expected an array of products' });
-  
-  if (isConnected) {
-    try {
-      for (const p of products) {
-        if (!p.id) p.id = `prod_${Date.now()}_${Math.random()}`;
-        await execute(`
-          INSERT INTO products (id, code, name, category_name, department_name, purchase_price, sale_price, stock, opening_stock, track_stock, is_active, location, unit_of_measure, description, created_on, variation_options, warranty_details, image)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON DUPLICATE KEY UPDATE name=VALUES(name), category_name=VALUES(category_name), department_name=VALUES(department_name), sale_price=VALUES(sale_price), stock=VALUES(stock), opening_stock=VALUES(opening_stock), purchase_price=VALUES(purchase_price), location=VALUES(location), unit_of_measure=VALUES(unit_of_measure), description=VALUES(description), variation_options=VALUES(variation_options), warranty_details=VALUES(warranty_details), image=VALUES(image), track_stock=VALUES(track_stock), is_active=VALUES(is_active);
-        `, [
-          p.id, p.code || '', p.name, p.categoryName || '', p.departmentName || '',
-          p.purchasePrice || 0, p.salePrice || 0, p.stock || 0, p.openingStock || 0, p.trackStock ? 1 : 0,
-          p.isActive ? 1 : 0, p.location || '', p.unitOfMeasure || 'Pcs', p.description || '', p.createdOn || '',
-          JSON.stringify(p.variationOptions || []), p.warrantyDetails || '', p.image || ''
-        ]);
-      }
-      return res.status(201).json({ success: true, count: products.length });
-    } catch (err: any) {
-      console.error('Error saving bulk products to MySQL:', err.message);
-      return res.status(500).json({ error: err.message });
-    }
-  }
-  // Fallback
-  for (const p of products) {
-    const existingIdx = memoryStore.products.findIndex((item: any) => item.id === p.id);
-    if (existingIdx >= 0) {
-      memoryStore.products[existingIdx] = p;
-    } else {
-      memoryStore.products.unshift(p);
-    }
-  }
-  res.status(201).json({ success: true, count: products.length });
-});
-
-app.delete('/api/catalog/products/:id', async (req, res) => {
-  const { id } = req.params;
-  if (isConnected) {
-    try {
-      await execute('DELETE FROM products WHERE id = ?', [id]);
-      return res.json({ success: true });
-    } catch (err: any) {
-      console.error('Error deleting product from MySQL:', err.message);
-    }
-  }
-  memoryStore.products = memoryStore.products.filter(p => p.id !== id);
-  res.json({ success: true });
-});
-
-// ==========================================================
 // 8.1 CATALOG CATEGORIES
+
 // ==========================================================
 app.get('/api/catalog/categories', async (req, res) => {
   if (isConnected) {
@@ -1283,8 +1248,232 @@ app.delete('/api/catalog/locations/:id', async (req, res) => {
 });
 
 // ==========================================================
+// 8.7 CATALOG VARIATIONS
+// ==========================================================
+app.get('/api/catalog/variations', async (req, res) => {
+  if (isConnected) {
+    try {
+      const rows = await query('SELECT * FROM catalog_variations ORDER BY created_at DESC');
+      return res.json(rows.map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        code: r.code,
+        values: typeof r.values_list === 'string' ? JSON.parse(r.values_list) : (r.values_list || []),
+        description: r.description,
+        createdOn: r.created_on
+      })));
+    } catch (err: any) {
+      console.error('Error fetching variations from MySQL:', err.message);
+    }
+  }
+  res.json(memoryStore.variations);
+});
+
+app.post('/api/catalog/variations', async (req, res) => {
+  const v = req.body;
+  if (isConnected) {
+    try {
+      await execute(`
+        INSERT INTO catalog_variations (id, name, code, values_list, description, created_on)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE name=VALUES(name), code=VALUES(code), values_list=VALUES(values_list), description=VALUES(description);
+      `, [v.id, v.name, v.code || '', JSON.stringify(v.values || []), v.description || '', v.createdOn || '']);
+      return res.status(201).json(v);
+    } catch (err: any) {
+      console.error('Error saving variation to MySQL:', err.message);
+    }
+  }
+  const idx = memoryStore.variations.findIndex(item => item.id === v.id);
+  if (idx >= 0) memoryStore.variations[idx] = v;
+  else memoryStore.variations.unshift(v);
+  res.status(201).json(v);
+});
+
+app.delete('/api/catalog/variations/:id', async (req, res) => {
+  const { id } = req.params;
+  if (isConnected) {
+    try {
+      await execute('DELETE FROM catalog_variations WHERE id = ?', [id]);
+      return res.json({ success: true });
+    } catch (err: any) {
+      console.error('Error deleting variation from MySQL:', err.message);
+    }
+  }
+  memoryStore.variations = memoryStore.variations.filter(v => v.id !== id);
+  res.json({ success: true });
+});
+
+// ==========================================================
+// 8.8 CATALOG PRODUCTS & MULTI-VARIANT PRICING
+// ==========================================================
+app.get('/api/catalog/products', async (req, res) => {
+  if (isDbConnected()) {
+    try {
+      const rows = await query('SELECT * FROM products ORDER BY created_at DESC');
+      const list = rows.map((r: any) => {
+        let varOpts: string[] = [];
+        if (r.variation_options) {
+          if (Array.isArray(r.variation_options)) varOpts = r.variation_options;
+          else if (typeof r.variation_options === 'string') {
+            try { varOpts = JSON.parse(r.variation_options); } catch { varOpts = []; }
+          }
+        }
+
+        let vars: any[] = [];
+        if (r.variants) {
+          if (Array.isArray(r.variants)) vars = r.variants;
+          else if (typeof r.variants === 'string') {
+            try { vars = JSON.parse(r.variants); } catch { vars = []; }
+          }
+        }
+
+        // If product has variation options but no variant objects, generate variant objects
+        if ((!vars || vars.length === 0) && varOpts && varOpts.length > 0) {
+          vars = varOpts.map((opt: string, idx: number) => ({
+            id: `var_${r.id}_${idx}`,
+            name: String(opt).trim(),
+            sku: `${r.code || 'PRD'}-VAR${idx + 1}`,
+            salePrice: Number(r.sale_price) || 0,
+            purchasePrice: Number(r.purchase_price) || 0,
+            stock: 0
+          }));
+        }
+
+        const isVar = Boolean(r.has_variants) || (vars && vars.length > 0) || (varOpts && varOpts.length > 0);
+
+        return {
+          id: r.id,
+          code: r.code || '',
+          name: r.name,
+          categoryName: r.category_name || 'General',
+          departmentName: r.department_name || '',
+          purchasePrice: Number(r.purchase_price) || 0,
+          location: r.location || '',
+          salePrice: Number(r.sale_price) || 0,
+          stock: Number(r.stock) || 0,
+          openingStock: Number(r.opening_stock) || 0,
+          trackStock: Boolean(r.track_stock),
+          isActive: Boolean(r.is_active),
+          unitOfMeasure: r.unit_of_measure || 'Pcs',
+          description: r.description || '',
+          variationOptions: varOpts,
+          hasVariants: isVar,
+          variants: vars,
+          warrantyDetails: r.warranty_details || '',
+          image: r.image || '',
+          createdOn: r.created_on || ''
+        };
+      });
+      return res.json(list);
+    } catch (err: any) {
+      console.error('Error fetching products from MySQL:', err);
+    }
+  }
+  res.json(memoryStore.products);
+});
+
+
+app.post('/api/catalog/products', async (req, res) => {
+  const p = req.body;
+  if (isDbConnected()) {
+    try {
+      await execute(`
+        INSERT INTO products (
+          id, code, name, category_name, department_name, purchase_price, location, 
+          sale_price, stock, opening_stock, track_stock, is_active, unit_of_measure, 
+          description, variation_options, has_variants, variants, warranty_details, image, created_on
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE 
+          code=VALUES(code), name=VALUES(name), category_name=VALUES(category_name), 
+          purchase_price=VALUES(purchase_price), location=VALUES(location), sale_price=VALUES(sale_price), 
+          stock=VALUES(stock), opening_stock=VALUES(opening_stock), track_stock=VALUES(track_stock), 
+          is_active=VALUES(is_active), description=VALUES(description), variation_options=VALUES(variation_options), 
+          has_variants=VALUES(has_variants), variants=VALUES(variants), warranty_details=VALUES(warranty_details), image=VALUES(image);
+      `, [
+        p.id, p.code || '', p.name, p.categoryName || 'General', p.departmentName || '',
+        p.purchasePrice || 0, p.location || '', p.salePrice || 0, p.stock || 0,
+        p.openingStock || 0, p.trackStock !== false, p.isActive !== false,
+        p.unitOfMeasure || 'Pcs', p.description || '', JSON.stringify(p.variationOptions || []),
+        p.hasVariants ? 1 : 0, JSON.stringify(p.variants || []), p.warrantyDetails || '',
+        p.image || '', p.createdOn || ''
+      ]);
+      return res.status(201).json(p);
+    } catch (err: any) {
+      console.error('Error saving product to MySQL:', err.message);
+    }
+  }
+  const idx = memoryStore.products.findIndex(item => item.id === p.id);
+  if (idx >= 0) memoryStore.products[idx] = p;
+  else memoryStore.products.unshift(p);
+  res.status(201).json(p);
+});
+
+
+app.post('/api/catalog/products/bulk', async (req, res) => {
+  const newProducts = req.body;
+  if (!Array.isArray(newProducts)) {
+    return res.status(400).json({ error: 'Expected an array of products' });
+  }
+
+  if (isConnected) {
+    try {
+      for (const p of newProducts) {
+        await execute(`
+          INSERT INTO products (
+            id, code, name, category_name, department_name, purchase_price, location, 
+            sale_price, stock, opening_stock, track_stock, is_active, unit_of_measure, 
+            description, variation_options, has_variants, variants, warranty_details, image, created_on
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE 
+            code=VALUES(code), name=VALUES(name), category_name=VALUES(category_name), 
+            purchase_price=VALUES(purchase_price), location=VALUES(location), sale_price=VALUES(sale_price), 
+            stock=VALUES(stock), opening_stock=VALUES(opening_stock), track_stock=VALUES(track_stock), 
+            is_active=VALUES(is_active), description=VALUES(description), variation_options=VALUES(variation_options), 
+            has_variants=VALUES(has_variants), variants=VALUES(variants), warranty_details=VALUES(warranty_details), image=VALUES(image);
+        `, [
+          p.id, p.code || '', p.name, p.categoryName || 'General', p.departmentName || '',
+          p.purchasePrice || 0, p.location || '', p.salePrice || 0, p.stock || 0,
+          p.openingStock || 0, p.trackStock !== false, p.isActive !== false,
+          p.unitOfMeasure || 'Pcs', p.description || '', JSON.stringify(p.variationOptions || []),
+          p.hasVariants ? 1 : 0, JSON.stringify(p.variants || []), p.warrantyDetails || '',
+          p.image || '', p.createdOn || ''
+        ]);
+      }
+      return res.status(201).json({ success: true, count: newProducts.length });
+    } catch (err: any) {
+      console.error('Error bulk saving products to MySQL:', err.message);
+    }
+  }
+
+  for (const p of newProducts) {
+    const idx = memoryStore.products.findIndex(item => item.id === p.id);
+    if (idx >= 0) memoryStore.products[idx] = p;
+    else memoryStore.products.unshift(p);
+  }
+  res.status(201).json({ success: true, count: newProducts.length });
+});
+
+app.delete('/api/catalog/products/:id', async (req, res) => {
+  const { id } = req.params;
+  if (isConnected) {
+    try {
+      await execute('DELETE FROM products WHERE id = ?', [id]);
+      return res.json({ success: true });
+    } catch (err: any) {
+      console.error('Error deleting product from MySQL:', err.message);
+    }
+  }
+  memoryStore.products = memoryStore.products.filter(p => p.id !== id);
+  res.json({ success: true });
+});
+
+
+// ==========================================================
 // 8.5 CUSTOMER PAYMENTS & DEPOSITS
 // ==========================================================
+
 app.get('/api/sales/payments', async (req, res) => {
   if (isConnected) {
     try {

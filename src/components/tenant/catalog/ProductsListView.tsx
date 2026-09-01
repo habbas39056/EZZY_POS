@@ -13,9 +13,13 @@ import {
   X,
   QrCode,
   FileSpreadsheet,
-  Package
+  Package,
+  SlidersHorizontal,
+  Layers
 } from 'lucide-react';
-import type { Product, StockAdjustment } from '../../../types/catalog';
+
+import type { Product, StockAdjustment, ProductVariant } from '../../../types/catalog';
+
 import { INITIAL_PRODUCTS } from '../../../types/catalog';
 import { DatePicker } from '../../common/DatePicker';
 import { ProductDetailView } from './ProductDetailView';
@@ -134,7 +138,9 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [itemsPerPage, setItemsPerPage] = useState<number>(50);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const [expandedVariantProductId, setExpandedVariantProductId] = useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -144,28 +150,50 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
       const text = evt.target?.result as string;
       const parsed = parseCSV(text);
       if (parsed.length > 0) {
-        const newProducts = parsed.map(p => ({
-          id: `prod_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-          code: p.Code || p.code || p.SKU || p.sku || `PRD-${Math.floor(100000 + Math.random() * 900000)}`,
-          name: p.Name || p.name || p['Product Name'] || p['Item Name'] || 'Unnamed Product',
-          categoryName: p.Category || p.category || p['Category Name'] || 'General',
-          departmentName: p.Department || p.department || p['Department Name'] || '',
-          purchasePrice: Number(p['Purchase Price'] || p['Cost Price'] || p.purchasePrice) || 0,
-          salePrice: Number(p['Sale Price'] || p.Price || p.salePrice || p['Unit Price']) || 0,
-          stock: Number(p.Stock || p.stock || p.Quantity || p.Qty) || 0,
-          openingStock: Number(p['Opening Stock'] || p.openingStock || p.Stock || 0) || 0,
-          location: p.Location || p.location || 'Main Warehouse',
-          unitOfMeasure: p.UOM || p.uom || p.Unit || p.unitOfMeasure || 'Pcs',
-          trackStock: p['Track Stock'] !== 'false' && p.trackStock !== 'false',
-          isActive: p['Active'] !== 'false' && p.isActive !== 'false',
-          warrantyDetails: p['Warranty Details'] || p.Warranty || p.warranty || '',
-          variationOptions: (p['Variation Options'] || p.Variations || p.variants || '')
+        const newProducts = parsed.map((p, pIdx) => {
+          const pCode = p.Code || p.code || p.SKU || p.sku || `PRD-${Math.floor(100000 + Math.random() * 900000)}`;
+          const pSale = Number(p['Sale Price'] || p.Price || p.salePrice || p['Unit Price']) || 0;
+          const pCost = Number(p['Purchase Price'] || p['Cost Price'] || p.purchasePrice) || 0;
+          const pStock = Number(p.Stock || p.stock || p.Quantity || p.Qty) || 0;
+          const pOpening = Number(p['Opening Stock'] || p.openingStock || p.Stock || 0) || 0;
+
+          const varList = (p['Variation Options'] || p.Variations || p.variants || '')
             ? (p['Variation Options'] || p.Variations || p.variants || '').split(',').map((v: string) => v.trim()).filter(Boolean)
-            : [],
-          description: p.Description || p.description || '',
-          image: p.Image || p.image || p.Picture || p.picture || '',
-          createdOn: new Date().toISOString().split('T')[0]
-        }));
+            : [];
+          const hasVar = varList.length > 0;
+          const generatedVariants = hasVar ? varList.map((opt: string, idx: number) => ({
+            id: `var_${Date.now()}_${pIdx}_${idx}`,
+            sku: `${pCode}-VAR${idx + 1}`,
+            name: opt,
+            salePrice: pSale,
+            purchasePrice: pCost,
+            stock: Math.floor(pStock / varList.length)
+          })) : [];
+
+          return {
+            id: `prod_${Date.now()}_${pIdx}_${Math.random().toString(36).substring(2, 9)}`,
+            code: pCode,
+            name: p.Name || p.name || p['Product Name'] || p['Item Name'] || 'Unnamed Product',
+            categoryName: p.Category || p.category || p['Category Name'] || 'General',
+            departmentName: p.Department || p.department || p['Department Name'] || '',
+            purchasePrice: pCost,
+            salePrice: pSale,
+            stock: pStock,
+            openingStock: pOpening,
+            location: p.Location || p.location || 'Main Warehouse',
+            unitOfMeasure: p.UOM || p.uom || p.Unit || p.unitOfMeasure || 'Pcs',
+            trackStock: p['Track Stock'] !== 'false' && p.trackStock !== 'false',
+            isActive: p['Active'] !== 'false' && p.isActive !== 'false',
+            warrantyDetails: p['Warranty Details'] || p.Warranty || p.warranty || '',
+            variationOptions: varList,
+            hasVariants: hasVar,
+            variants: generatedVariants,
+            description: p.Description || p.description || '',
+            image: p['Image URL'] || p.Image || p.image || p.Picture || p.picture || '',
+            createdOn: new Date().toISOString().split('T')[0]
+          };
+        });
+
         
         try {
           const res = await fetch('http://localhost:5000/api/catalog/products/bulk', {
@@ -206,6 +234,11 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
   const [adjQty, setAdjQty] = useState<number | ''>('');
   const [adjUnitPrice, setAdjUnitPrice] = useState<number | ''>(0);
   const [adjAccount, setAdjAccount] = useState<string>('20001 - Retained Earnings');
+  const [adjSelectedVariantId, setAdjSelectedVariantId] = useState<string>('');
+  const [newVarName, setNewVarName] = useState<string>('');
+  const [newVarSku, setNewVarSku] = useState<string>('');
+  const [newVarSalePrice, setNewVarSalePrice] = useState<number | ''>('');
+  const [newVarPurchasePrice, setNewVarPurchasePrice] = useState<number | ''>('');
   
   const getTodayFormatted = () => {
     const now = new Date();
@@ -254,6 +287,11 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
     setAdjAccount('20001 - Retained Earnings');
     setAdjDate(getTodayFormatted());
     setAdjNote('');
+    setAdjSelectedVariantId(prod.hasVariants && prod.variants && prod.variants.length > 0 ? prod.variants[0].id : '');
+    setNewVarName('');
+    setNewVarSku('');
+    setNewVarSalePrice(prod.salePrice ?? '');
+    setNewVarPurchasePrice(prod.purchasePrice ?? '');
     setActiveMenuId(null);
   };
 
@@ -270,16 +308,64 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
     const priceNumber = Number(adjUnitPrice) || 0;
     const totalVal = qtyNumber * priceNumber;
 
-    // Update Product Stock
-    const updatedStock = adjType === 'Increase'
-      ? adjustmentModalProduct.stock + qtyNumber
-      : Math.max(0, adjustmentModalProduct.stock - qtyNumber);
+    let updatedProd: Product;
+    let historyNote = adjNote;
 
-    const updatedProd: Product = {
-      ...adjustmentModalProduct,
-      stock: updatedStock,
-      purchasePrice: priceNumber > 0 ? priceNumber : adjustmentModalProduct.purchasePrice
-    };
+    if (adjSelectedVariantId === 'new') {
+      if (!newVarName.trim()) {
+        alert('Please enter a Variation Name.');
+        return;
+      }
+      const newVariant: ProductVariant = {
+        id: `var_${Date.now()}`,
+        name: newVarName.trim(),
+        sku: newVarSku.trim() || `${adjustmentModalProduct.code || 'PRD'}-${Math.floor(1000 + Math.random() * 9000)}`,
+        purchasePrice: priceNumber > 0 ? priceNumber : (Number(newVarPurchasePrice) || adjustmentModalProduct.purchasePrice || 0),
+        salePrice: Number(newVarSalePrice) || adjustmentModalProduct.salePrice || 0,
+        stock: qtyNumber
+      };
+      const existingVariants = adjustmentModalProduct.variants || [];
+      const updatedVariants = [...existingVariants, newVariant];
+      const totalStock = updatedVariants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+
+      updatedProd = {
+        ...adjustmentModalProduct,
+        hasVariants: true,
+        variants: updatedVariants,
+        stock: totalStock
+      };
+      historyNote = adjNote || `Created New Variation "${newVarName.trim()}" with initial stock of ${qtyNumber} units`;
+    } else if (adjSelectedVariantId && adjustmentModalProduct.variants && adjustmentModalProduct.variants.length > 0) {
+      const targetVariant = adjustmentModalProduct.variants.find(v => v.id === adjSelectedVariantId);
+      const updatedVariants = adjustmentModalProduct.variants.map(v => {
+        if (v.id === adjSelectedVariantId) {
+          const currStock = Number(v.stock) || 0;
+          const newStock = adjType === 'Increase' ? currStock + qtyNumber : Math.max(0, currStock - qtyNumber);
+          return { ...v, stock: newStock, purchasePrice: priceNumber > 0 ? priceNumber : v.purchasePrice };
+        }
+        return v;
+      });
+      const totalStock = updatedVariants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+
+      updatedProd = {
+        ...adjustmentModalProduct,
+        hasVariants: true,
+        variants: updatedVariants,
+        stock: totalStock
+      };
+      historyNote = adjNote || `Stock Adjustment (${adjType}) on Variation "${targetVariant?.name || adjSelectedVariantId}"`;
+    } else {
+      const updatedStock = adjType === 'Increase'
+        ? adjustmentModalProduct.stock + qtyNumber
+        : Math.max(0, adjustmentModalProduct.stock - qtyNumber);
+
+      updatedProd = {
+        ...adjustmentModalProduct,
+        stock: updatedStock,
+        purchasePrice: priceNumber > 0 ? priceNumber : adjustmentModalProduct.purchasePrice
+      };
+      historyNote = adjNote || (adjType === 'Increase' ? 'Stock Adjustment (Increase)' : 'Stock Adjustment (Decrease)');
+    }
 
     if (onUpdateProduct) {
       onUpdateProduct(updatedProd);
@@ -300,22 +386,25 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
       unitPrice: priceNumber,
       totalValue: totalVal,
       accountHead: adjAccount,
-      notes: adjNote || (adjType === 'Increase' ? 'Stock Adjustment (Increase)' : 'Stock Adjustment (Decrease)'),
+      notes: historyNote,
       createdOn: getTodayFormatted()
     };
 
     saveAdjustments([newAdjRecord, ...stockAdjustments]);
-    alert(`Stock for ${adjustmentModalProduct.name} updated to ${updatedStock} units!`);
+    alert(`Stock adjusted successfully! Total product stock is now ${updatedProd.stock} units.`);
     setAdjustmentModalProduct(null);
   };
+
 
   const filteredProducts = products.filter(p => 
     !searchQuery ||
     p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     p.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
     p.categoryName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    p.location.toLowerCase().includes(searchQuery.toLowerCase())
+    p.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (p.variants && p.variants.some(v => v.name.toLowerCase().includes(searchQuery.toLowerCase()) || (v.sku && v.sku.toLowerCase().includes(searchQuery.toLowerCase()))))
   );
+
 
   // Filter history records for the active modal product
   const productHistoryRecords = historyModalProduct
@@ -444,7 +533,9 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
                 </tr>
               ) : (
                 filteredProducts.map(prod => (
-                  <tr key={prod.id} className="hover:bg-slate-50/80 transition relative">
+                  <React.Fragment key={prod.id}>
+                    <tr className="hover:bg-slate-50/80 transition relative">
+
                     {/* Code */}
                     <td 
                       onClick={() => setSelectedDetailProduct(prod)}
@@ -482,8 +573,27 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
                     </td>
 
                     {/* Variations */}
-                    <td className="px-4 py-3 text-slate-600 truncate max-w-[150px]" title={prod.variationOptions?.join(', ')}>
-                      {prod.variationOptions?.length ? prod.variationOptions.join(', ') : <span className="text-slate-300">—</span>}
+                    <td className="px-4 py-3 text-slate-600">
+                      {prod.hasVariants && prod.variants && prod.variants.length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedVariantProductId(expandedVariantProductId === prod.id ? null : prod.id);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-sky-50 text-sky-800 border border-sky-200 text-[10.5px] font-bold hover:bg-sky-100 transition cursor-pointer shadow-2xs"
+                          title="Click to view all variation prices"
+                        >
+                          <SlidersHorizontal className="w-3 h-3 text-[#0070ba]" />
+                          <span>{prod.variants.length} Variants</span>
+                        </button>
+                      ) : prod.variationOptions?.length ? (
+                        <span className="truncate max-w-[150px] inline-block" title={prod.variationOptions.join(', ')}>
+                          {prod.variationOptions.join(', ')}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
                     </td>
 
                     {/* Warranty */}
@@ -501,9 +611,29 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
                       {prod.location || <span className="text-slate-300">—</span>}
                     </td>
 
-                    {/* Sale Price */}
+                    {/* Sale Price (Multi-Tier Support) */}
                     <td className="px-4 py-3 text-right font-mono font-bold text-slate-900">
-                      {currencySymbol} {prod.salePrice.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      {(() => {
+                        if (prod.hasVariants && prod.variants && prod.variants.length > 0) {
+                          const prices = prod.variants.map(v => Number(v.salePrice) || 0);
+                          const minPrice = Math.min(...prices);
+                          const maxPrice = Math.max(...prices);
+                          if (minPrice !== maxPrice) {
+                            return (
+                              <div className="flex flex-col items-end">
+                                <span className="text-slate-900 font-bold">
+                                  {currencySymbol} {minPrice.toLocaleString('en-US', { minimumFractionDigits: 2 })} - {maxPrice.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                </span>
+                                <span className="text-[9.5px] text-[#0070ba] font-semibold">
+                                  {prod.variants.length} price tiers
+                                </span>
+                              </div>
+                            );
+                          }
+                          return `${currencySymbol} ${minPrice.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+                        }
+                        return `${currencySymbol} ${prod.salePrice.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+                      })()}
                     </td>
 
                     {/* Stock */}
@@ -539,7 +669,7 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
                     <td className="px-4 py-3 text-center relative">
                       <button
                         onClick={() => setActiveMenuId(activeMenuId === prod.id ? null : prod.id)}
-                        className="p-1 rounded-md text-sky-700 hover:text-slate-900 hover:bg-slate-100 transition inline-flex items-center justify-center font-bold text-sm tracking-widest"
+                        className="p-1 rounded-md text-sky-700 hover:text-slate-900 hover:bg-slate-100 transition inline-flex items-center justify-center font-bold text-sm tracking-widest cursor-pointer"
                         title="Item Actions"
                       >
                         •••
@@ -551,7 +681,7 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
                           {/* + New Adjustment */}
                           <button
                             onClick={() => handleOpenNewAdjustment(prod)}
-                            className="w-full px-4 py-2 flex items-center gap-2.5 hover:bg-slate-50 text-slate-800 font-medium transition"
+                            className="w-full px-4 py-2 flex items-center gap-2.5 hover:bg-slate-50 text-slate-800 font-medium transition cursor-pointer"
                           >
                             <Plus className="w-4 h-4 text-slate-900" />
                             <span>New Adjustment</span>
@@ -563,7 +693,7 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
                               setHistoryModalProduct(prod);
                               setActiveMenuId(null);
                             }}
-                            className="w-full px-4 py-2 flex items-center gap-2.5 hover:bg-slate-50 text-slate-800 font-medium transition"
+                            className="w-full px-4 py-2 flex items-center gap-2.5 hover:bg-slate-50 text-slate-800 font-medium transition cursor-pointer"
                           >
                             <Warehouse className="w-4 h-4 text-slate-900" />
                             <span>Stock History</span>
@@ -584,7 +714,7 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
                           {/* Delete Product */}
                           <button
                             onClick={() => handleDeleteProduct(prod.id)}
-                            className="w-full px-4 py-2 flex items-center gap-2.5 hover:bg-slate-50 text-slate-900 font-medium transition"
+                            className="w-full px-4 py-2 flex items-center gap-2.5 hover:bg-slate-50 text-slate-900 font-medium transition cursor-pointer"
                           >
                             <Trash2 className="w-4 h-4 text-slate-900" />
                             <span>Delete Product</span>
@@ -593,6 +723,53 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
                       )}
                     </td>
                   </tr>
+
+                  {/* Expandable Variant Breakdown Sub-Row */}
+                  {expandedVariantProductId === prod.id && prod.hasVariants && prod.variants && prod.variants.length > 0 && (
+                    <tr className="bg-sky-50/40 border-b border-sky-100">
+                      <td colSpan={12} className="px-6 py-3">
+                        <div className="bg-white rounded-lg border border-sky-200 p-3 shadow-2xs space-y-2">
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                            <span className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
+                              <SlidersHorizontal className="w-3.5 h-3.5 text-[#0070ba]" />
+                              Individual Variation Pricing for "{prod.name}"
+                            </span>
+                            <span className="text-[10.5px] text-slate-400 font-medium">
+                              {prod.variants.length} options configured
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 pt-1">
+                            {prod.variants.map((v, vIdx) => (
+                              <div key={v.id || vIdx} className="bg-slate-50 border border-slate-200 rounded-md p-2 flex flex-col justify-between">
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="font-bold text-xs text-slate-800">{v.name}</span>
+                                  {v.sku && <span className="text-[9.5px] font-mono text-slate-500 bg-white px-1.5 py-0.5 rounded border border-slate-200">{v.sku}</span>}
+                                </div>
+                                <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-200/60">
+                                  <span className="text-[10.5px] text-slate-500">Sale Price:</span>
+                                  <span className="font-mono font-bold text-slate-900">{currencySymbol} {Number(v.salePrice || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                                </div>
+                                {v.purchasePrice ? (
+                                  <div className="flex items-center justify-between text-[10px] text-slate-400 mt-0.5">
+                                    <span>Cost:</span>
+                                    <span>{currencySymbol} {Number(v.purchasePrice || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                                  </div>
+                                ) : null}
+                                {v.stock !== undefined && (
+                                  <div className="flex items-center justify-between text-[10.5px] text-slate-500 mt-0.5">
+                                    <span>Stock:</span>
+                                    <span className="font-semibold text-emerald-700">{v.stock} Pcs</span>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+
                 ))
               )}
             </tbody>
@@ -655,7 +832,7 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
               </button>
             </div>
 
-            {/* Form matching Screenshot 2 */}
+            {/* Form matching Screenshot 2 with Variation Support */}
             <form onSubmit={handleSaveStockAdjustment} className="p-6 space-y-4 text-xs">
               {/* Name */}
               <div>
@@ -670,6 +847,140 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
                 />
               </div>
 
+              {/* Variation Selection & Creation */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-slate-500 font-medium">
+                    Variation / Stock Target
+                  </label>
+                  {adjSelectedVariantId !== 'new' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAdjSelectedVariantId('new');
+                        setNewVarName('');
+                        setNewVarSku(`${adjustmentModalProduct.code || 'PRD'}-VAR${(adjustmentModalProduct.variants?.length || 0) + 1}`);
+                        setNewVarSalePrice(adjustmentModalProduct.salePrice || '');
+                        setNewVarPurchasePrice(adjUnitPrice || adjustmentModalProduct.purchasePrice || '');
+                      }}
+                      className="text-xs font-semibold text-[#0070ba] hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      + Create New Variation
+                    </button>
+                  )}
+                </div>
+
+                <select
+                  value={adjSelectedVariantId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setAdjSelectedVariantId(val);
+                    if (val === 'new') {
+                      setNewVarName('');
+                      setNewVarSku(`${adjustmentModalProduct.code || 'PRD'}-VAR${(adjustmentModalProduct.variants?.length || 0) + 1}`);
+                      setNewVarSalePrice(adjustmentModalProduct.salePrice || '');
+                      setNewVarPurchasePrice(adjUnitPrice || adjustmentModalProduct.purchasePrice || '');
+                    } else if (val) {
+                      const v = adjustmentModalProduct.variants?.find(item => item.id === val);
+                      if (v) {
+                        setAdjUnitPrice(v.purchasePrice || adjustmentModalProduct.purchasePrice || 0);
+                      }
+                    } else {
+                      setAdjUnitPrice(adjustmentModalProduct.purchasePrice || 0);
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-slate-300 rounded focus:outline-none focus:border-[#0070ba] text-xs bg-white text-slate-800"
+                >
+                  <option value="">Main Product Stock (Total: {adjustmentModalProduct.stock} units)</option>
+                  {adjustmentModalProduct.variants && adjustmentModalProduct.variants.map(v => (
+                    <option key={v.id} value={v.id}>
+                      Variation: {v.name} (Current Stock: {v.stock || 0}, Sale: Rs {v.salePrice})
+                    </option>
+                  ))}
+                  <option value="new">➕ + Create New Variation for this Product</option>
+                </select>
+              </div>
+
+              {/* If "Create New Variation" is selected, render new variant inputs */}
+              {adjSelectedVariantId === 'new' && (
+                <div className="p-3.5 bg-sky-50/80 border border-sky-200 rounded-lg space-y-3">
+                  <div className="flex items-center justify-between pb-1 border-b border-sky-200">
+                    <span className="font-bold text-[#0070ba] text-xs flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5" />
+                      Create New Variation Details
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setAdjSelectedVariantId(adjustmentModalProduct.hasVariants && adjustmentModalProduct.variants?.length ? adjustmentModalProduct.variants[0].id : '')}
+                      className="text-[11px] text-slate-500 hover:text-slate-800 underline cursor-pointer"
+                    >
+                      Cancel New Variation
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1 text-[11px]">
+                        Variation Name <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. 550W Black Frame / Red XL"
+                        value={newVarName}
+                        onChange={(e) => setNewVarName(e.target.value)}
+                        className="w-full px-2.5 py-1.5 border border-sky-300 rounded focus:outline-none focus:border-[#0070ba] text-xs bg-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1 text-[11px]">
+                        SKU / Code
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Optional SKU"
+                        value={newVarSku}
+                        onChange={(e) => setNewVarSku(e.target.value)}
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded focus:outline-none focus:border-[#0070ba] text-xs bg-white font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1 text-[11px]">
+                        Sale Price (Rs) <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="e.g. 1500"
+                        value={newVarSalePrice}
+                        onChange={(e) => setNewVarSalePrice(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="w-full px-2.5 py-1.5 border border-sky-300 rounded focus:outline-none focus:border-[#0070ba] text-xs bg-white font-mono font-bold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1 text-[11px]">
+                        Cost / Purchase Price (Rs)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="e.g. 1000"
+                        value={newVarPurchasePrice}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Number(e.target.value);
+                          setNewVarPurchasePrice(val);
+                          if (val !== '') setAdjUnitPrice(val);
+                        }}
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded focus:outline-none focus:border-[#0070ba] text-xs bg-white font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Current Stock */}
               <div>
                 <label className="block text-slate-500 font-medium mb-1">
@@ -678,10 +989,18 @@ export const ProductsListView: React.FC<ProductsListViewProps> = ({
                 <input
                   type="text"
                   readOnly
-                  value={adjustmentModalProduct.stock}
-                  className="w-full px-3 py-2 border border-slate-300 rounded focus:outline-none bg-white text-slate-800 text-xs"
+                  value={
+                    adjSelectedVariantId === 'new'
+                      ? '0 (New Variation)'
+                      : (() => {
+                          const targetVar = adjustmentModalProduct.variants?.find(v => v.id === adjSelectedVariantId);
+                          return targetVar ? targetVar.stock || 0 : adjustmentModalProduct.stock;
+                        })()
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded focus:outline-none bg-white text-slate-800 text-xs font-semibold font-mono"
                 />
               </div>
+
 
               {/* Stock Adjustment Type (Radio buttons) */}
               <div>

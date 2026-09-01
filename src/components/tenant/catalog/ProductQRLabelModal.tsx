@@ -52,15 +52,33 @@ export const ProductQRLabelModal: React.FC<ProductQRLabelModalProps> = ({
   const [copied, setCopied] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [selectedVariantId, setSelectedVariantId] = useState<string>('base');
 
   const selectedProduct = products.find(p => p.id === selectedProductId) || products[0];
 
+  const activeVariant = (selectedProduct?.hasVariants && selectedVariantId !== 'base')
+    ? selectedProduct.variants?.find(v => v.id === selectedVariantId)
+    : null;
+
+  const displayProduct: Product = (selectedProduct && activeVariant) ? {
+    ...selectedProduct,
+    name: `${selectedProduct.name} (${activeVariant.name})`,
+    code: activeVariant.sku || selectedProduct.code,
+    salePrice: activeVariant.salePrice,
+    purchasePrice: activeVariant.purchasePrice || selectedProduct.purchasePrice,
+    stock: activeVariant.stock !== undefined ? activeVariant.stock : selectedProduct.stock
+  } : selectedProduct;
+
   useEffect(() => {
-    if (!selectedProduct) return;
+    setSelectedVariantId('base');
+  }, [selectedProductId]);
+
+  useEffect(() => {
+    if (!displayProduct) return;
     let isCurrent = true;
     setIsGenerating(true);
 
-    generateProductQRCodeDataUrl(selectedProduct, currencySymbol, payloadMode).then(url => {
+    generateProductQRCodeDataUrl(displayProduct, currencySymbol, payloadMode).then(url => {
       if (isCurrent) {
         setQrDataUrl(url);
         setIsGenerating(false);
@@ -70,13 +88,13 @@ export const ProductQRLabelModal: React.FC<ProductQRLabelModalProps> = ({
     return () => {
       isCurrent = false;
     };
-  }, [selectedProduct, currencySymbol, payloadMode]);
+  }, [displayProduct, currencySymbol, payloadMode]);
 
-  if (!selectedProduct) {
+  if (!selectedProduct || !displayProduct) {
     return null;
   }
 
-  const qrString = buildProductQRString(selectedProduct, currencySymbol, payloadMode);
+  const qrString = buildProductQRString(displayProduct, currencySymbol, payloadMode);
 
   const handleCopyText = () => {
     navigator.clipboard.writeText(qrString);
@@ -88,9 +106,10 @@ export const ProductQRLabelModal: React.FC<ProductQRLabelModalProps> = ({
     if (!qrDataUrl) return;
     const a = document.createElement('a');
     a.href = qrDataUrl;
-    a.download = `QR_${selectedProduct.code || selectedProduct.name}.png`;
+    a.download = `QR_${displayProduct.code || displayProduct.name}.png`;
     a.click();
   };
+
 
   const handlePrint = async () => {
     const productsToPrint = printScope === 'all' ? products : [selectedProduct];
@@ -196,6 +215,29 @@ export const ProductQRLabelModal: React.FC<ProductQRLabelModalProps> = ({
                 </select>
               </div>
             )}
+
+            {/* Product Variation Selector */}
+            {selectedProduct?.hasVariants && selectedProduct.variants && selectedProduct.variants.length > 0 && (
+              <div className="bg-sky-50/60 border border-sky-200 rounded-md p-2.5 space-y-1">
+                <label className="block text-[11px] font-bold text-slate-800 flex items-center justify-between">
+                  <span>Product Variation</span>
+                  <span className="text-[10px] text-[#0070ba] font-bold">({selectedProduct.variants.length} tiers)</span>
+                </label>
+                <select
+                  value={selectedVariantId}
+                  onChange={(e) => setSelectedVariantId(e.target.value)}
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs bg-white text-slate-800 focus:outline-none focus:border-[#0070ba]"
+                >
+                  <option value="base">Base Product — {currencySymbol} {selectedProduct.salePrice.toLocaleString()}</option>
+                  {selectedProduct.variants.map(v => (
+                    <option key={v.id} value={v.id}>
+                      {v.name} {v.sku ? `[${v.sku}]` : ''} — {currencySymbol} {v.salePrice.toLocaleString()}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
 
             {/* 2. Label Size / Layout */}
             <div>
